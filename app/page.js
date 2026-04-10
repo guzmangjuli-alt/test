@@ -28,30 +28,33 @@ export default function Home() {
   }, [symbolsInput]);
 
   function playSignalSound() {
-    try {
-      const AudioContextClass = window.AudioContext || window.webkitAudioContext;
-      if (!AudioContextClass) return;
+  try {
+    const AudioContextClass = window.AudioContext || window.webkitAudioContext;
+    const ctx = new AudioContextClass();
 
-      const ctx = new AudioContextClass();
-      const oscillator = ctx.createOscillator();
-      const gainNode = ctx.createGain();
+    const oscillator = ctx.createOscillator();
+    const gain = ctx.createGain();
 
-      oscillator.type = 'sine';
-      oscillator.frequency.setValueAtTime(880, ctx.currentTime);
+    oscillator.type = 'sine';
 
-      gainNode.gain.setValueAtTime(0.0001, ctx.currentTime);
-      gainNode.gain.exponentialRampToValueAtTime(0.15, ctx.currentTime + 0.01);
-      gainNode.gain.exponentialRampToValueAtTime(0.0001, ctx.currentTime + 0.35);
+    // Sonido más claro y potente
+    oscillator.frequency.setValueAtTime(700, ctx.currentTime);
+    oscillator.frequency.setValueAtTime(900, ctx.currentTime + 0.1);
 
-      oscillator.connect(gainNode);
-      gainNode.connect(ctx.destination);
+    gain.gain.setValueAtTime(0.001, ctx.currentTime);
+    gain.gain.exponentialRampToValueAtTime(0.2, ctx.currentTime + 0.02);
+    gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.4);
 
-      oscillator.start();
-      oscillator.stop(ctx.currentTime + 0.35);
-    } catch (e) {
-      console.error('No se pudo reproducir el sonido', e);
-    }
+    oscillator.connect(gain);
+    gain.connect(ctx.destination);
+
+    oscillator.start();
+    oscillator.stop(ctx.currentTime + 0.4);
+
+  } catch (e) {
+    console.error('Error sonido', e);
   }
+}
 
   async function analyzeAll(showLoader = true) {
     try {
