@@ -1,31 +1,34 @@
 'use client';
 
 import { useEffect, useMemo, useRef, useState } from 'react';
-import SignalCard from '@/components/SignalCard';
+import SignalCard from '../components/SignalCard';
 
 const DEFAULT_SYMBOLS = 'BTCUSDT, ETHUSDT, SOLUSDT';
 
-export default function Home() {
+export default function HomePage() {
   const [symbolsInput, setSymbolsInput] = useState(DEFAULT_SYMBOLS);
   const [timeframe, setTimeframe] = useState('1m');
-  const [results, setResults] = useState([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
+  const [results, setResults] = useState([]);
   const [autoRefresh, setAutoRefresh] = useState(false);
-  const [refreshSeconds, setRefreshSeconds] = useState(30);
-  const [onlySignals, setOnlySignals] = useState(false);
+  const [refreshSeconds, setRefreshSeconds] = useState('30');
+  const [onlyActionable, setOnlyActionable] = useState(false);
+  const [lastUpdated, setLastUpdated] = useState('');
 
   const intervalRef = useRef(null);
   const lastSignalsRef = useRef({});
   const audioEnabledRef = useRef(false);
 
-  const symbols = useMemo(() => {
-    return symbolsInput
-      .split(',')
-      .map((s) => s.trim().toUpperCase().replace('/', ''))
-      .filter(Boolean)
-      .slice(0, 10);
-  }, [symbolsInput]);
+  const symbols = useMemo(
+    () =>
+      symbolsInput
+        .split(',')
+        .map((item) => item.trim().toUpperCase().replace('/', ''))
+        .filter(Boolean)
+        .slice(0, 10),
+    [symbolsInput]
+  );
 
   function playSignalSound() {
     try {
@@ -38,43 +41,36 @@ export default function Home() {
 
       oscillator.type = 'sine';
       oscillator.frequency.setValueAtTime(700, ctx.currentTime);
-      oscillator.frequency.linearRampToValueAtTime(900, ctx.currentTime + 0.12);
+      oscillator.frequency.linearRampToValueAtTime(920, ctx.currentTime + 0.12);
 
       gain.gain.setValueAtTime(0.001, ctx.currentTime);
       gain.gain.exponentialRampToValueAtTime(0.2, ctx.currentTime + 0.02);
-      gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.4);
+      gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.45);
 
       oscillator.connect(gain);
       gain.connect(ctx.destination);
 
       oscillator.start();
-      oscillator.stop(ctx.currentTime + 0.4);
+      oscillator.stop(ctx.currentTime + 0.45);
     } catch (e) {
       console.error('Error sonido', e);
     }
   }
 
-  async function analyzeAll(showLoader = true) {
-    try {
-      if (showLoader) setLoading(true);
-      setError('');
+  async function analyzeAll(showSpinner = true) {
+    if (!symbols.length) return;
+    if (showSpinner) setLoading(true);
+    setError('');
 
+    try {
       const response = await fetch('/api/analyze', {
         method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          symbols,
-          timeframe,
-        }),
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ symbols, timeframe }),
       });
 
       const data = await response.json();
-
-      if (!response.ok) {
-        throw new Error(data?.error || 'Error analizando mercado');
-      }
+      if (!response.ok) throw new Error(data?.error || 'No se pudo analizar el mercado.');
 
       const nextResults = data.results || [];
       let hasNewSignal = false;
@@ -95,14 +91,16 @@ export default function Home() {
       }
 
       setResults(nextResults);
+      setLastUpdated(new Date().toLocaleTimeString('es-ES'));
 
       if (hasNewSignal) {
         playSignalSound();
       }
     } catch (err) {
-      setError(err.message || 'Error inesperado');
+      setError(err.message || 'Error conectando con Julsignals.');
+      setResults([]);
     } finally {
-      if (showLoader) setLoading(false);
+      if (showSpinner) setLoading(false);
     }
   }
 
@@ -112,83 +110,73 @@ export default function Home() {
   }, []);
 
   useEffect(() => {
-    if (intervalRef.current) {
-      clearInterval(intervalRef.current);
-    }
+    if (intervalRef.current) clearInterval(intervalRef.current);
+    if (!autoRefresh) return undefined;
 
-    if (autoRefresh) {
-      intervalRef.current = setInterval(() => {
-        analyzeAll(false);
-      }, Number(refreshSeconds) * 1000);
-    }
+    const seconds = Math.max(5, Number(refreshSeconds) || 30);
+    intervalRef.current = setInterval(() => analyzeAll(false), seconds * 1000);
 
-    return () => {
-      if (intervalRef.current) clearInterval(intervalRef.current);
-    };
+    return () => clearInterval(intervalRef.current);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [autoRefresh, refreshSeconds, timeframe, symbolsInput]);
 
-  const filteredResults = useMemo(() => {
-    if (!onlySignals) return results;
-    return results.filter((item) => item.signal === 'LONG' || item.signal === 'SHORT');
-  }, [results, onlySignals]);
+  const visibleResults = useMemo(() => {
+    const sorted = [...results].sort((a, b) => (b.score || 0) - (a.score || 0));
+    return onlyActionable ? sorted.filter((item) => item.signal !== 'WAIT') : sorted;
+  }, [results, onlyActionable]);
 
-  const stats = useMemo(() => {
-    const longs = results.filter((r) => r.signal === 'LONG').length;
-    const shorts = results.filter((r) => r.signal === 'SHORT').length;
-    const waits = results.filter((r) => r.signal === 'WAIT').length;
-    return { longs, shorts, waits };
-  }, [results]);
+  const stats = useMemo(
+    () => ({
+      longs: results.filter((r) => r.signal === 'LONG').length,
+      shorts: results.filter((r) => r.signal === 'SHORT').length,
+      waits: results.filter((r) => r.signal === 'WAIT').length,
+    }),
+    [results]
+  );
 
   return (
-    <main className="min-h-screen bg-slate-950 text-white">
-      <div className="mx-auto max-w-7xl px-4 py-8 md:px-6">
-        <div className="mb-8">
-          <div className="mb-3 inline-flex items-center rounded-full border border-blue-500/20 bg-blue-500/10 px-3 py-1 text-sm text-blue-300">
-            Julsignals
+    <main className="page">
+      <div className="container">
+        <section className="hero">
+          <div>
+            <div className="kicker">⚡ Julsignals</div>
+            <h1 className="title">Señales de scalping crypto</h1>
+            <p className="subtitle">
+              Analiza tus pares favoritos y recibe entrada, stop, take profit, score del setup y motivo de la señal.
+            </p>
           </div>
-          <h1 className="text-3xl font-bold md:text-5xl">Señales de scalping crypto</h1>
-          <p className="mt-2 max-w-3xl text-slate-300">
-            Analiza tus pares favoritos con filtro de tendencia, RSI, volumen y ruptura.
-          </p>
-        </div>
 
-        <div className="mb-6 grid gap-4 md:grid-cols-3">
-          <div className="rounded-2xl border border-slate-800 bg-slate-900 p-4">
-            <div className="text-sm text-slate-400">LONG</div>
-            <div className="mt-1 text-2xl font-bold text-emerald-300">{stats.longs}</div>
+          <div className="stats">
+            <div className="stat">
+              <div className="stat-label">LONG</div>
+              <div className="stat-value green">{stats.longs}</div>
+            </div>
+            <div className="stat">
+              <div className="stat-label">SHORT</div>
+              <div className="stat-value red">{stats.shorts}</div>
+            </div>
+            <div className="stat">
+              <div className="stat-label">WAIT</div>
+              <div className="stat-value amber">{stats.waits}</div>
+            </div>
           </div>
-          <div className="rounded-2xl border border-slate-800 bg-slate-900 p-4">
-            <div className="text-sm text-slate-400">SHORT</div>
-            <div className="mt-1 text-2xl font-bold text-red-300">{stats.shorts}</div>
-          </div>
-          <div className="rounded-2xl border border-slate-800 bg-slate-900 p-4">
-            <div className="text-sm text-slate-400">WAIT</div>
-            <div className="mt-1 text-2xl font-bold text-amber-300">{stats.waits}</div>
-          </div>
-        </div>
+        </section>
 
-        <div className="mb-6 rounded-3xl border border-slate-800 bg-slate-900 p-5">
-          <div className="grid gap-4 lg:grid-cols-[1.4fr_180px_180px]">
-            <div>
-              <label className="mb-2 block text-sm text-slate-300">Watchlist</label>
+        <section className="card pad">
+          <div className="controls">
+            <div className="field">
+              <label>Watchlist</label>
               <input
-                type="text"
+                className="input"
                 value={symbolsInput}
                 onChange={(e) => setSymbolsInput(e.target.value)}
                 placeholder="BTCUSDT, ETHUSDT, SOLUSDT"
-                className="h-12 w-full rounded-2xl border border-slate-700 bg-slate-950 px-4 text-white outline-none"
               />
-              <p className="mt-2 text-xs text-slate-500">Separadas por coma. Máximo 10 pares.</p>
             </div>
 
-            <div>
-              <label className="mb-2 block text-sm text-slate-300">Timeframe</label>
-              <select
-                value={timeframe}
-                onChange={(e) => setTimeframe(e.target.value)}
-                className="h-12 w-full rounded-2xl border border-slate-700 bg-slate-950 px-4 text-white outline-none"
-              >
+            <div className="field">
+              <label>Timeframe</label>
+              <select className="select" value={timeframe} onChange={(e) => setTimeframe(e.target.value)}>
                 <option value="1m">1m</option>
                 <option value="3m">3m</option>
                 <option value="5m">5m</option>
@@ -197,82 +185,91 @@ export default function Home() {
               </select>
             </div>
 
-            <div className="flex items-end">
+            <div className="field" style={{ alignSelf: 'end' }}>
+              <label style={{ visibility: 'hidden' }}>Analizar</label>
               <button
+                className="button"
                 onClick={() => {
                   audioEnabledRef.current = true;
                   analyzeAll(true);
                 }}
                 disabled={loading || symbols.length === 0}
-                className="h-12 w-full rounded-2xl bg-blue-600 px-4 font-semibold text-white transition hover:bg-blue-500 disabled:cursor-not-allowed disabled:opacity-60"
               >
                 {loading ? 'Analizando...' : 'Analizar'}
               </button>
             </div>
           </div>
 
-          <div className="mt-5 grid gap-4 md:grid-cols-3">
-            <label className="flex items-center justify-between rounded-2xl border border-slate-800 bg-slate-950 px-4 py-3">
+          <div className="toggles">
+            <div className="toggle">
               <div>
-                <div className="text-sm text-slate-200">Auto refresh</div>
-                <div className="text-xs text-slate-500">Actualización automática</div>
+                <div className="toggle-title">Auto refresh</div>
+                <div className="toggle-subtitle">Actualización automática</div>
               </div>
               <input
+                className="switch"
                 type="checkbox"
                 checked={autoRefresh}
                 onChange={(e) => setAutoRefresh(e.target.checked)}
-                className="h-5 w-5"
               />
-            </label>
+            </div>
 
-            <label className="flex items-center justify-between rounded-2xl border border-slate-800 bg-slate-950 px-4 py-3">
+            <div className="toggle">
               <div>
-                <div className="text-sm text-slate-200">Cada</div>
-                <div className="text-xs text-slate-500">segundos</div>
+                <div className="toggle-title">Cada</div>
+                <div className="toggle-subtitle">segundos</div>
               </div>
               <select
+                className="select"
+                style={{ maxWidth: 100, height: 42 }}
                 value={refreshSeconds}
-                onChange={(e) => setRefreshSeconds(Number(e.target.value))}
-                className="rounded-xl border border-slate-700 bg-slate-900 px-3 py-2 text-white"
+                onChange={(e) => setRefreshSeconds(e.target.value)}
               >
-                <option value={10}>10s</option>
-                <option value={15}>15s</option>
-                <option value={30}>30s</option>
-                <option value={60}>60s</option>
+                <option value="10">10s</option>
+                <option value="15">15s</option>
+                <option value="30">30s</option>
+                <option value="60">60s</option>
               </select>
-            </label>
+            </div>
 
-            <label className="flex items-center justify-between rounded-2xl border border-slate-800 bg-slate-950 px-4 py-3">
+            <div className="toggle">
               <div>
-                <div className="text-sm text-slate-200">Solo señales</div>
-                <div className="text-xs text-slate-500">Ocultar WAIT</div>
+                <div className="toggle-title">Solo señales</div>
+                <div className="toggle-subtitle">Ocultar WAIT</div>
               </div>
               <input
+                className="switch"
                 type="checkbox"
-                checked={onlySignals}
-                onChange={(e) => setOnlySignals(e.target.checked)}
-                className="h-5 w-5"
+                checked={onlyActionable}
+                onChange={(e) => setOnlyActionable(e.target.checked)}
               />
-            </label>
+            </div>
           </div>
-        </div>
 
-        {error ? (
-          <div className="mb-6 rounded-2xl border border-red-900 bg-red-950/40 p-4 text-red-200">
-            {error}
+          <div className="meta">
+            <div>
+              Última actualización: <strong>{lastUpdated || '—'}</strong>
+            </div>
+            <div>
+              API lista en <strong>/api/analyze</strong>
+            </div>
           </div>
-        ) : null}
 
-        {filteredResults.length === 0 ? (
-          <div className="rounded-3xl border border-slate-800 bg-slate-900 p-8 text-center text-slate-400">
-            No hay pares para mostrar.
+          {error ? <div className="error">{error}</div> : null}
+
+          <div className="footer-note">
+            Activa el auto refresh a 30s si quieres que vigile señales nuevas y suene cuando aparezcan.
           </div>
-        ) : (
-          <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
-            {filteredResults.map((item) => (
+        </section>
+
+        {visibleResults.length > 0 ? (
+          <section className="grid">
+            {visibleResults.map((item) => (
               <SignalCard key={item.symbol} item={item} />
             ))}
-          </div>
+          </section>
+        ) : (
+          <section className="card empty">No hay pares para mostrar todavía. Añade símbolos y pulsa analizar.</section>
         )}
       </div>
     </main>
