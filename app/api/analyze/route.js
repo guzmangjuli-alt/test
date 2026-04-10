@@ -1,12 +1,3 @@
-const BASE_URLS = [
-  'https://api.binance.com',
-  'https://api-gcp.binance.com',
-  'https://api1.binance.com',
-  'https://api2.binance.com',
-  'https://api3.binance.com',
-  'https://api4.binance.com',
-];
-
 function ema(values, period) {
   const k = 2 / (period + 1);
   let prev = values[0];
@@ -98,45 +89,19 @@ function buildSignal(rows) {
     signal = 'LONG';
     score = longChecks.filter(Boolean).length * 20;
     confidence = 55 + longChecks.filter(Boolean).length * 8;
-    if (last.close > ema50[i]) reasons.push('Precio por encima de EMA 50');
-    if (ema9[i] > ema26[i]) reasons.push('EMA 9 por encima de EMA 26');
-    if (rsi14[i] !== null) reasons.push(`RSI ${rsi14[i].toFixed(1)}`);
-    if (last.volume >= avgVol20) reasons.push('Volumen por encima de la media');
-    if (last.close > prev.high) reasons.push('Ruptura del máximo previo');
 
     stop = Math.min(...lows.slice(-5));
     takeProfit = last.close + (last.close - stop) * 2;
+
   } else if (shortChecks.filter(Boolean).length >= 4) {
     signal = 'SHORT';
     score = shortChecks.filter(Boolean).length * 20;
     confidence = 55 + shortChecks.filter(Boolean).length * 8;
-    if (last.close < ema50[i]) reasons.push('Precio por debajo de EMA 50');
-    if (ema9[i] < ema26[i]) reasons.push('EMA 9 por debajo de EMA 26');
-    if (rsi14[i] !== null) reasons.push(`RSI ${rsi14[i].toFixed(1)}`);
-    if (last.volume >= avgVol20) reasons.push('Volumen por encima de la media');
-    if (last.close < prev.low) reasons.push('Ruptura del mínimo previo');
 
     stop = Math.max(...highs.slice(-5));
     takeProfit = last.close - (stop - last.close) * 2;
   } else {
-    reasons = ['No hay confirmación suficiente del setup'];
-  }
-
-  let rr = null;
-  let riskPercent = null;
-
-  if (signal === 'LONG' && stop && takeProfit) {
-    const risk = last.close - stop;
-    const reward = takeProfit - last.close;
-    rr = risk > 0 ? (reward / risk).toFixed(2) : null;
-    riskPercent = risk > 0 ? ((risk / last.close) * 100).toFixed(2) : null;
-  }
-
-  if (signal === 'SHORT' && stop && takeProfit) {
-    const risk = stop - last.close;
-    const reward = last.close - takeProfit;
-    rr = risk > 0 ? (reward / risk).toFixed(2) : null;
-    riskPercent = risk > 0 ? ((risk / last.close) * 100).toFixed(2) : null;
+    reasons = ['No hay confirmación suficiente'];
   }
 
   return {
@@ -147,8 +112,8 @@ function buildSignal(rows) {
     entry: formatNumber(last.close),
     stop: formatNumber(stop),
     takeProfit: formatNumber(takeProfit),
-    rr,
-    riskPercent,
+    rr: null,
+    riskPercent: null,
     reasons,
   };
 }
@@ -175,7 +140,7 @@ async function fetchKlines(symbol, interval) {
 
   const data = await res.json();
 
-  if (!data?.data || !Array.isArray(data.data)) {
+  if (!data?.data) {
     throw new Error('Bitget respuesta inválida');
   }
 
@@ -188,55 +153,11 @@ async function fetchKlines(symbol, interval) {
     volume: Number(k[5]),
   })).reverse();
 }
-  const cleanSymbol = symbol.toUpperCase().replace('/', '').trim();
-
-  let lastError = 'No se pudo obtener mercado';
-
-  for (const base of BASE_URLS) {
-    const url = `${base}/api/v3/klines?symbol=${cleanSymbol}&interval=${interval}&limit=120`;
-
-    try {
-      const res = await fetch(url, {
-        method: 'GET',
-        headers: {
-          'accept': 'application/json',
-          'user-agent': 'Julsignals/1.0',
-        },
-        cache: 'no-store',
-      });
-
-      if (!res.ok) {
-        lastError = `${base} -> HTTP ${res.status}`;
-        continue;
-      }
-
-      const data = await res.json();
-
-      if (!Array.isArray(data) || data.length < 60) {
-        lastError = `${base} -> respuesta inválida`;
-        continue;
-      }
-
-      return data.map(k => ({
-        time: Number(k[0]),
-        open: Number(k[1]),
-        high: Number(k[2]),
-        low: Number(k[3]),
-        close: Number(k[4]),
-        volume: Number(k[5]),
-      }));
-    } catch (err) {
-      lastError = `${base} -> ${err.message}`;
-    }
-  }
-
-  throw new Error(lastError);
-}
 
 export async function POST(req) {
   try {
     const body = await req.json();
-    const symbols = Array.isArray(body?.symbols) ? body.symbols.slice(0, 10) : ['BTCUSDT'];
+    const symbols = body?.symbols || ['BTCUSDT_UMCBL'];
     const timeframe = body?.timeframe || '1m';
 
     const results = [];
@@ -245,32 +166,25 @@ export async function POST(req) {
       try {
         const rows = await fetchKlines(symbol, timeframe);
         const signal = buildSignal(rows);
+
         results.push({
           symbol,
           ...signal,
         });
+
       } catch (err) {
         results.push({
           symbol,
           signal: 'WAIT',
-          score: 0,
           confidence: 0,
-          price: null,
-          entry: null,
-          stop: null,
-          takeProfit: null,
-          rr: null,
-          riskPercent: null,
-          reasons: [`Error de mercado: ${err.message}`],
+          reasons: [err.message],
         });
       }
     }
 
-    return Response.json({ results }, { status: 200 });
+    return Response.json({ results });
+
   } catch (err) {
-    return Response.json(
-      { error: err.message || 'Error interno en /api/analyze' },
-      { status: 500 }
-    );
+    return Response.json({ error: err.message }, { status: 500 });
   }
 }
