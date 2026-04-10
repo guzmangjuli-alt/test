@@ -150,6 +150,40 @@ async function fetchKlines(symbol, interval) {
   const cleanSymbol = symbol.toUpperCase().replace('/', '').trim();
 
   const tfMap = {
+    '1m': '1m',
+    '5m': '5m',
+    '15m': '15m',
+    '1h': '1H',
+  };
+
+  const bitgetInterval = tfMap[interval] || '1m';
+
+  const url = `https://api.bitget.com/api/mix/v1/market/candles?symbol=${cleanSymbol}_UMCBL&granularity=${bitgetInterval}&limit=120`;
+
+  const res = await fetch(url);
+
+  if (!res.ok) {
+    throw new Error(`Bitget HTTP ${res.status}`);
+  }
+
+  const data = await res.json();
+
+  if (!Array.isArray(data) || data.length < 60) {
+    throw new Error('Bitget respuesta inválida');
+  }
+
+  return data.map(k => ({
+    time: Number(k[0]),
+    open: Number(k[1]),
+    high: Number(k[2]),
+    low: Number(k[3]),
+    close: Number(k[4]),
+    volume: Number(k[5]),
+  }));
+}
+  const cleanSymbol = symbol.toUpperCase().replace('/', '').trim();
+
+  const tfMap = {
     '1m': '1min',
     '3m': '3min',
     '5m': '5min',
