@@ -90,18 +90,46 @@ function buildSignal(rows) {
     score = longChecks.filter(Boolean).length * 20;
     confidence = 55 + longChecks.filter(Boolean).length * 8;
 
+    if (last.close > ema50[i]) reasons.push('Precio por encima de EMA 50');
+    if (ema9[i] > ema26[i]) reasons.push('EMA 9 por encima de EMA 26');
+    if (rsi14[i] !== null) reasons.push(`RSI ${rsi14[i].toFixed(1)}`);
+    if (last.volume >= avgVol20) reasons.push('Volumen por encima de la media');
+    if (last.close > prev.high) reasons.push('Ruptura del máximo previo');
+
     stop = Math.min(...lows.slice(-5));
     takeProfit = last.close + (last.close - stop) * 2;
-
   } else if (shortChecks.filter(Boolean).length >= 4) {
     signal = 'SHORT';
     score = shortChecks.filter(Boolean).length * 20;
     confidence = 55 + shortChecks.filter(Boolean).length * 8;
 
+    if (last.close < ema50[i]) reasons.push('Precio por debajo de EMA 50');
+    if (ema9[i] < ema26[i]) reasons.push('EMA 9 por debajo de EMA 26');
+    if (rsi14[i] !== null) reasons.push(`RSI ${rsi14[i].toFixed(1)}`);
+    if (last.volume >= avgVol20) reasons.push('Volumen por encima de la media');
+    if (last.close < prev.low) reasons.push('Ruptura del mínimo previo');
+
     stop = Math.max(...highs.slice(-5));
     takeProfit = last.close - (stop - last.close) * 2;
   } else {
     reasons = ['No hay confirmación suficiente'];
+  }
+
+  let rr = null;
+  let riskPercent = null;
+
+  if (signal === 'LONG' && stop && takeProfit) {
+    const risk = last.close - stop;
+    const reward = takeProfit - last.close;
+    rr = risk > 0 ? (reward / risk).toFixed(2) : null;
+    riskPercent = risk > 0 ? ((risk / last.close) * 100).toFixed(2) : null;
+  }
+
+  if (signal === 'SHORT' && stop && takeProfit) {
+    const risk = stop - last.close;
+    const reward = last.close - takeProfit;
+    rr = risk > 0 ? (reward / risk).toFixed(2) : null;
+    riskPercent = risk > 0 ? ((risk / last.close) * 100).toFixed(2) : null;
   }
 
   return {
@@ -112,8 +140,8 @@ function buildSignal(rows) {
     entry: formatNumber(last.close),
     stop: formatNumber(stop),
     takeProfit: formatNumber(takeProfit),
-    rr: null,
-    riskPercent: null,
+    rr,
+    riskPercent,
     reasons,
   };
 }
@@ -123,16 +151,29 @@ async function fetchKlines(symbol, interval) {
 
   const tfMap = {
     '1m': '1min',
+    '3m': '3min',
     '5m': '5min',
     '15m': '15min',
-    '1h': '1H'
+    '1h': '1H',
   };
 
   const bitgetInterval = tfMap[interval] || '1min';
 
-  const url = `https://api.bitget.com/api/v2/mix/market/candles?symbol=${cleanSymbol}&granularity=${bitgetInterval}&limit=120`;
+  const url =
+    `https://api.bitget.com/api/v2/mix/market/candles` +
+    `?symbol=${cleanSymbol}` +
+    `&productType=usdt-futures` +
+    `&granularity=${bitgetInterval}` +
+    `&limit=120`;
 
-  const res = await fetch(url);
+  const res = await fetch(url, {
+    method: 'GET',
+    headers: {
+      accept: 'application/json',
+      'user-agent': 'Julsignals/1.0',
+    },
+    cache: 'no-store',
+  });
 
   if (!res.ok) {
     throw new Error(`Bitget HTTP ${res.status}`);
@@ -140,24 +181,26 @@ async function fetchKlines(symbol, interval) {
 
   const data = await res.json();
 
-  if (!data?.data) {
+  if (!data?.data || !Array.isArray(data.data) || data.data.length < 60) {
     throw new Error('Bitget respuesta inválida');
   }
 
-  return data.data.map(k => ({
-    time: Number(k[0]),
-    open: Number(k[1]),
-    high: Number(k[2]),
-    low: Number(k[3]),
-    close: Number(k[4]),
-    volume: Number(k[5]),
-  })).reverse();
+  return data.data
+    .map(k => ({
+      time: Number(k[0]),
+      open: Number(k[1]),
+      high: Number(k[2]),
+      low: Number(k[3]),
+      close: Number(k[4]),
+      volume: Number(k[5]),
+    }))
+    .reverse();
 }
 
 export async function POST(req) {
   try {
     const body = await req.json();
-    const symbols = body?.symbols || ['BTCUSDT_UMCBL'];
+    const symbols = Array.isArray(body?.symbols) ? body.symbols.slice(0, 10) : ['BTCUSDT'];
     const timeframe = body?.timeframe || '1m';
 
     const results = [];
@@ -166,25 +209,32 @@ export async function POST(req) {
       try {
         const rows = await fetchKlines(symbol, timeframe);
         const signal = buildSignal(rows);
-
         results.push({
           symbol,
           ...signal,
         });
-
       } catch (err) {
         results.push({
           symbol,
           signal: 'WAIT',
+          score: 0,
           confidence: 0,
-          reasons: [err.message],
+          price: null,
+          entry: null,
+          stop: null,
+          takeProfit: null,
+          rr: null,
+          riskPercent: null,
+          reasons: [`Error de mercado: ${err.message}`],
         });
       }
     }
 
-    return Response.json({ results });
-
+    return Response.json({ results }, { status: 200 });
   } catch (err) {
-    return Response.json({ error: err.message }, { status: 500 });
+    return Response.json(
+      { error: err.message || 'Error interno en /api/analyze' },
+      { status: 500 }
+    );
   }
 }
