@@ -146,59 +146,28 @@ function buildSignal(rows) {
   };
 }
 
-async function fetchKlines(symbol, interval) {
-  const cleanSymbol = symbol.toUpperCase().replace('/', '').trim();
+function toOkxInstId(symbol) {
+  const clean = symbol.toUpperCase().replace('/', '').trim();
+  if (clean.endsWith('USDT')) {
+    const base = clean.slice(0, -4);
+    return `${base}-USDT`;
+  }
+  return clean;
+}
 
-  const tfMap = {
+async function fetchKlines(symbol, interval) {
+  const instId = toOkxInstId(symbol);
+
+  const barMap = {
     '1m': '1m',
+    '3m': '3m',
     '5m': '5m',
     '15m': '15m',
     '1h': '1H',
   };
 
-  const bitgetInterval = tfMap[interval] || '1m';
-
-  const url = `https://api.bitget.com/api/mix/v1/market/candles?symbol=${cleanSymbol}_UMCBL&granularity=${bitgetInterval}&limit=120`;
-
-  const res = await fetch(url);
-
-  if (!res.ok) {
-    throw new Error(`Bitget HTTP ${res.status}`);
-  }
-
-  const data = await res.json();
-
-  if (!Array.isArray(data) || data.length < 60) {
-    throw new Error('Bitget respuesta inválida');
-  }
-
-  return data.map(k => ({
-    time: Number(k[0]),
-    open: Number(k[1]),
-    high: Number(k[2]),
-    low: Number(k[3]),
-    close: Number(k[4]),
-    volume: Number(k[5]),
-  }));
-}
-  const cleanSymbol = symbol.toUpperCase().replace('/', '').trim();
-
-  const tfMap = {
-    '1m': '1min',
-    '3m': '3min',
-    '5m': '5min',
-    '15m': '15min',
-    '1h': '1H',
-  };
-
-  const bitgetInterval = tfMap[interval] || '1min';
-
-  const url =
-    `https://api.bitget.com/api/v2/mix/market/candles` +
-    `?symbol=${cleanSymbol}` +
-    `&productType=usdt-futures` +
-    `&granularity=${bitgetInterval}` +
-    `&limit=120`;
+  const bar = barMap[interval] || '1m';
+  const url = `https://www.okx.com/api/v5/market/candles?instId=${encodeURIComponent(instId)}&bar=${bar}&limit=100`;
 
   const res = await fetch(url, {
     method: 'GET',
@@ -210,15 +179,16 @@ async function fetchKlines(symbol, interval) {
   });
 
   if (!res.ok) {
-    throw new Error(`Bitget HTTP ${res.status}`);
+    throw new Error(`OKX HTTP ${res.status}`);
   }
 
   const data = await res.json();
 
   if (!data?.data || !Array.isArray(data.data) || data.data.length < 60) {
-    throw new Error('Bitget respuesta inválida');
+    throw new Error('OKX respuesta inválida');
   }
 
+  // OKX devuelve más nuevo -> más antiguo; lo invertimos
   return data.data
     .map(k => ({
       time: Number(k[0]),
