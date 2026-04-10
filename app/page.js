@@ -28,33 +28,31 @@ export default function Home() {
   }, [symbolsInput]);
 
   function playSignalSound() {
-  try {
-    const AudioContextClass = window.AudioContext || window.webkitAudioContext;
-    const ctx = new AudioContextClass();
+    try {
+      const AudioContextClass = window.AudioContext || window.webkitAudioContext;
+      if (!AudioContextClass) return;
 
-    const oscillator = ctx.createOscillator();
-    const gain = ctx.createGain();
+      const ctx = new AudioContextClass();
+      const oscillator = ctx.createOscillator();
+      const gain = ctx.createGain();
 
-    oscillator.type = 'sine';
+      oscillator.type = 'sine';
+      oscillator.frequency.setValueAtTime(700, ctx.currentTime);
+      oscillator.frequency.linearRampToValueAtTime(900, ctx.currentTime + 0.12);
 
-    // Sonido más claro y potente
-    oscillator.frequency.setValueAtTime(700, ctx.currentTime);
-    oscillator.frequency.setValueAtTime(900, ctx.currentTime + 0.1);
+      gain.gain.setValueAtTime(0.001, ctx.currentTime);
+      gain.gain.exponentialRampToValueAtTime(0.2, ctx.currentTime + 0.02);
+      gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.4);
 
-    gain.gain.setValueAtTime(0.001, ctx.currentTime);
-    gain.gain.exponentialRampToValueAtTime(0.2, ctx.currentTime + 0.02);
-    gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.4);
+      oscillator.connect(gain);
+      gain.connect(ctx.destination);
 
-    oscillator.connect(gain);
-    gain.connect(ctx.destination);
-
-    oscillator.start();
-    oscillator.stop(ctx.currentTime + 0.4);
-
-  } catch (e) {
-    console.error('Error sonido', e);
+      oscillator.start();
+      oscillator.stop(ctx.currentTime + 0.4);
+    } catch (e) {
+      console.error('Error sonido', e);
+    }
   }
-}
 
   async function analyzeAll(showLoader = true) {
     try {
