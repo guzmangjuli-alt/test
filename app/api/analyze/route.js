@@ -39,7 +39,7 @@ function rsi(values, period = 14) {
 }
 
 function formatNumber(n) {
-  if (n === null || n === undefined || Number.isNaN(n)) return null;
+  if (!n) return null;
   return Number(n.toFixed(6));
 }
 
@@ -48,6 +48,7 @@ function buildSignal(rows) {
   const highs = rows.map(r => r.high);
   const lows = rows.map(r => r.low);
   const volumes = rows.map(r => r.volume);
+  const opens = rows.map(r => r.open);
 
   const ema9 = ema(closes, 9);
   const ema26 = ema(closes, 26);
@@ -58,187 +59,127 @@ function buildSignal(rows) {
   const last = rows[i];
   const prev = rows[i - 1];
 
-  const recentVolumes = volumes.slice(-20);
-  const avgVol20 =
-    recentVolumes.reduce((a, b) => a + b, 0) / Math.max(recentVolumes.length, 1);
+  const avgVol =
+    volumes.slice(-20).reduce((a, b) => a + b, 0) / 20;
 
-  const longChecks = [
-    last.close > ema50[i],
-    ema9[i] > ema26[i],
-    rsi14[i] !== null && rsi14[i] >= 48 && rsi14[i] <= 68,
-    last.volume >= avgVol20,
-    last.close > prev.high,
-  ];
+  const rvol = last.volume / avgVol;
 
-  const shortChecks = [
-    last.close < ema50[i],
-    ema9[i] < ema26[i],
-    rsi14[i] !== null && rsi14[i] >= 32 && rsi14[i] <= 52,
-    last.volume >= avgVol20,
-    last.close < prev.low,
-  ];
+  const range = last.high - last.low;
+  const body = Math.abs(last.close - last.open);
+  const bodyRatio = range > 0 ? body / range : 0;
 
+  const closeHigh = (last.high - last.close) / range < 0.3;
+  const closeLow = (last.close - last.low) / range < 0.3;
+
+  let score = 0;
   let signal = 'WAIT';
   let reasons = [];
-  let confidence = 50;
-  let score = 0;
   let stop = null;
   let takeProfit = null;
 
-  if (longChecks.filter(Boolean).length >= 4) {
-    signal = 'LONG';
-    score = longChecks.filter(Boolean).length * 20;
-    confidence = 55 + longChecks.filter(Boolean).length * 8;
+  const longScore =
+    (last.close > ema50[i] ? 20 : 0) +
+    (ema9[i] > ema26[i] ? 20 : 0) +
+    (rsi14[i] > 50 && rsi14[i] < 65 ? 15 : 0) +
+    (last.close > prev.high ? 20 : 0) +
+    (rvol > 1.5 ? 15 : 0) +
+    (bodyRatio > 0.6 && closeHigh ? 10 : 0);
 
-    if (last.close > ema50[i]) reasons.push('Precio por encima de EMA 50');
-    if (ema9[i] > ema26[i]) reasons.push('EMA 9 por encima de EMA 26');
-    if (rsi14[i] !== null) reasons.push(`RSI ${rsi14[i].toFixed(1)}`);
-    if (last.volume >= avgVol20) reasons.push('Volumen por encima de la media');
-    if (last.close > prev.high) reasons.push('Ruptura del máximo previo');
+  const shortScore =
+    (last.close < ema50[i] ? 20 : 0) +
+    (ema9[i] < ema26[i] ? 20 : 0) +
+    (rsi14[i] < 50 && rsi14[i] > 35 ? 15 : 0) +
+    (last.close < prev.low ? 20 : 0) +
+    (rvol > 1.5 ? 15 : 0) +
+    (bodyRatio > 0.6 && closeLow ? 10 : 0);
+
+  if (longScore >= 75) {
+    signal = 'LONG';
+    score = longScore;
 
     stop = Math.min(...lows.slice(-5));
-    takeProfit = last.close + (last.close - stop) * 2;
-  } else if (shortChecks.filter(Boolean).length >= 4) {
-    signal = 'SHORT';
-    score = shortChecks.filter(Boolean).length * 20;
-    confidence = 55 + shortChecks.filter(Boolean).length * 8;
+    takeProfit = last.close + (last.close - stop) * 2.5;
 
-    if (last.close < ema50[i]) reasons.push('Precio por debajo de EMA 50');
-    if (ema9[i] < ema26[i]) reasons.push('EMA 9 por debajo de EMA 26');
-    if (rsi14[i] !== null) reasons.push(`RSI ${rsi14[i].toFixed(1)}`);
-    if (last.volume >= avgVol20) reasons.push('Volumen por encima de la media');
-    if (last.close < prev.low) reasons.push('Ruptura del mínimo previo');
+    reasons.push('Volumen fuerte');
+    reasons.push('Ruptura confirmada');
+  } else if (shortScore >= 75) {
+    signal = 'SHORT';
+    score = shortScore;
 
     stop = Math.max(...highs.slice(-5));
-    takeProfit = last.close - (stop - last.close) * 2;
-  } else {
-    reasons = ['No hay confirmación suficiente'];
-  }
+    takeProfit = last.close - (stop - last.close) * 2.5;
 
-  let rr = null;
-  let riskPercent = null;
-
-  if (signal === 'LONG' && stop && takeProfit) {
-    const risk = last.close - stop;
-    const reward = takeProfit - last.close;
-    rr = risk > 0 ? (reward / risk).toFixed(2) : null;
-    riskPercent = risk > 0 ? ((risk / last.close) * 100).toFixed(2) : null;
-  }
-
-  if (signal === 'SHORT' && stop && takeProfit) {
-    const risk = stop - last.close;
-    const reward = last.close - takeProfit;
-    rr = risk > 0 ? (reward / risk).toFixed(2) : null;
-    riskPercent = risk > 0 ? ((risk / last.close) * 100).toFixed(2) : null;
+    reasons.push('Volumen fuerte');
+    reasons.push('Ruptura confirmada');
   }
 
   return {
     signal,
     score,
-    confidence: Math.min(confidence, 95),
+    confidence: Math.min(60 + score / 2, 95),
     price: formatNumber(last.close),
     entry: formatNumber(last.close),
     stop: formatNumber(stop),
     takeProfit: formatNumber(takeProfit),
-    rr,
-    riskPercent,
+    rr: null,
+    riskPercent: null,
     reasons,
   };
 }
 
-function toOkxInstId(symbol) {
-  const clean = symbol.toUpperCase().replace('/', '').trim();
-  if (clean.endsWith('USDT')) {
-    const base = clean.slice(0, -4);
-    return `${base}-USDT`;
-  }
-  return clean;
+function toOkx(symbol) {
+  return symbol.replace('USDT', '-USDT');
 }
 
 async function fetchKlines(symbol, interval) {
-  const instId = toOkxInstId(symbol);
-
-  const barMap = {
+  const tfMap = {
     '1m': '1m',
-    '3m': '3m',
     '5m': '5m',
     '15m': '15m',
-    '1h': '1H',
+    '1h': '1H'
   };
 
-  const bar = barMap[interval] || '1m';
-  const url = `https://www.okx.com/api/v5/market/candles?instId=${encodeURIComponent(instId)}&bar=${bar}&limit=100`;
+  const bar = tfMap[interval] || '1m';
 
-  const res = await fetch(url, {
-    method: 'GET',
-    headers: {
-      accept: 'application/json',
-      'user-agent': 'Julsignals/1.0',
-    },
-    cache: 'no-store',
-  });
+  const url = `https://www.okx.com/api/v5/market/candles?instId=${toOkx(symbol)}&bar=${bar}&limit=100`;
 
-  if (!res.ok) {
-    throw new Error(`OKX HTTP ${res.status}`);
-  }
+  const res = await fetch(url);
 
   const data = await res.json();
 
-  if (!data?.data || !Array.isArray(data.data) || data.data.length < 60) {
-    throw new Error('OKX respuesta inválida');
-  }
+  if (!data?.data) throw new Error('OKX error');
 
-  // OKX devuelve más nuevo -> más antiguo; lo invertimos
-  return data.data
-    .map(k => ({
-      time: Number(k[0]),
-      open: Number(k[1]),
-      high: Number(k[2]),
-      low: Number(k[3]),
-      close: Number(k[4]),
-      volume: Number(k[5]),
-    }))
-    .reverse();
+  return data.data.map(k => ({
+    time: Number(k[0]),
+    open: Number(k[1]),
+    high: Number(k[2]),
+    low: Number(k[3]),
+    close: Number(k[4]),
+    volume: Number(k[5]),
+  })).reverse();
 }
 
 export async function POST(req) {
-  try {
-    const body = await req.json();
-    const symbols = Array.isArray(body?.symbols) ? body.symbols.slice(0, 10) : ['BTCUSDT'];
-    const timeframe = body?.timeframe || '1m';
+  const body = await req.json();
+  const symbols = body.symbols || ['BTCUSDT'];
+  const timeframe = body.timeframe || '1m';
 
-    const results = [];
+  const results = [];
 
-    for (const symbol of symbols) {
-      try {
-        const rows = await fetchKlines(symbol, timeframe);
-        const signal = buildSignal(rows);
-        results.push({
-          symbol,
-          ...signal,
-        });
-      } catch (err) {
-        results.push({
-          symbol,
-          signal: 'WAIT',
-          score: 0,
-          confidence: 0,
-          price: null,
-          entry: null,
-          stop: null,
-          takeProfit: null,
-          rr: null,
-          riskPercent: null,
-          reasons: [`Error de mercado: ${err.message}`],
-        });
-      }
+  for (const symbol of symbols) {
+    try {
+      const rows = await fetchKlines(symbol, timeframe);
+      const signal = buildSignal(rows);
+      results.push({ symbol, ...signal });
+    } catch (err) {
+      results.push({
+        symbol,
+        signal: 'WAIT',
+        confidence: 0,
+        reasons: [err.message],
+      });
     }
-
-    return Response.json({ results }, { status: 200 });
-  } catch (err) {
-    return Response.json(
-      { error: err.message || 'Error interno en /api/analyze' },
-      { status: 500 }
-    );
   }
+
+  return Response.json({ results });
 }
