@@ -49,11 +49,10 @@ function percentMove(from, to) {
 }
 
 function buildSignal(rows) {
-  const closes = rows.map(r => r.close);
-  const highs = rows.map(r => r.high);
-  const lows = rows.map(r => r.low);
-  const opens = rows.map(r => r.open);
-  const volumes = rows.map(r => r.volume);
+  const closes = rows.map((r) => r.close);
+  const highs = rows.map((r) => r.high);
+  const lows = rows.map((r) => r.low);
+  const volumes = rows.map((r) => r.volume);
 
   const ema9 = ema(closes, 9);
   const ema26 = ema(closes, 26);
@@ -65,12 +64,13 @@ function buildSignal(rows) {
   const prev = rows[i - 1];
 
   const avgVol20 =
-    volumes.slice(-20).reduce((a, b) => a + b, 0) / Math.max(volumes.slice(-20).length, 1);
+    volumes.slice(-20).reduce((a, b) => a + b, 0) /
+    Math.max(volumes.slice(-20).length, 1);
 
   const avgRange10 =
     rows
       .slice(-10)
-      .map(r => r.high - r.low)
+      .map((r) => r.high - r.low)
       .reduce((a, b) => a + b, 0) / Math.max(rows.slice(-10).length, 1);
 
   const rvol = avgVol20 > 0 ? last.volume / avgVol20 : 0;
@@ -84,8 +84,8 @@ function buildSignal(rows) {
   const upperWickRatio = range > 0 ? upperWick / range : 0;
   const lowerWickRatio = range > 0 ? lowerWick / range : 0;
 
-  const closeNearHigh = range > 0 ? (last.high - last.close) / range <= 0.20 : false;
-  const closeNearLow = range > 0 ? (last.close - last.low) / range <= 0.20 : false;
+  const closeNearHigh = range > 0 ? (last.high - last.close) / range <= 0.2 : false;
+  const closeNearLow = range > 0 ? (last.close - last.low) / range <= 0.2 : false;
 
   const trendStrengthLong =
     last.close > ema50[i] &&
@@ -100,26 +100,19 @@ function buildSignal(rows) {
   const breakoutLong = last.close > prev.high;
   const breakoutShort = last.close < prev.low;
 
-  const momentumLong =
-    rsi14[i] !== null &&
-    rsi14[i] >= 52 &&
-    rsi14[i] <= 62;
-
-  const momentumShort =
-    rsi14[i] !== null &&
-    rsi14[i] >= 38 &&
-    rsi14[i] <= 48;
+  const momentumLong = rsi14[i] !== null && rsi14[i] >= 52 && rsi14[i] <= 62;
+  const momentumShort = rsi14[i] !== null && rsi14[i] >= 38 && rsi14[i] <= 48;
 
   const volumeStrong = rvol >= 1.8;
   const candleExpansion = range >= avgRange10 * 1.1;
 
   const candleStrongLong =
-    bodyRatio >= 0.60 &&
+    bodyRatio >= 0.6 &&
     closeNearHigh &&
     upperWickRatio <= 0.18;
 
   const candleStrongShort =
-    bodyRatio >= 0.60 &&
+    bodyRatio >= 0.6 &&
     closeNearLow &&
     lowerWickRatio <= 0.18;
 
@@ -185,7 +178,7 @@ function buildSignal(rows) {
   if (signal === 'LONG' && stop && takeProfit) {
     const risk = last.close - stop;
     const reward = takeProfit - last.close;
-    rr = risk > 0 ? (reward / risk).toFixed(2) : null;
+    rr = risk > 0 ? reward / risk : null;
     riskPercent = risk > 0 ? ((risk / last.close) * 100).toFixed(2) : null;
     tpPercent = percentMove(last.close, takeProfit).toFixed(2);
   }
@@ -193,13 +186,11 @@ function buildSignal(rows) {
   if (signal === 'SHORT' && stop && takeProfit) {
     const risk = stop - last.close;
     const reward = last.close - takeProfit;
-    rr = risk > 0 ? (reward / risk).toFixed(2) : null;
+    rr = risk > 0 ? reward / risk : null;
     riskPercent = risk > 0 ? ((risk / last.close) * 100).toFixed(2) : null;
     tpPercent = percentMove(last.close, takeProfit).toFixed(2);
   }
 
-  // Filtro extra realista para fees/slippage:
-  // si el TP potencial es demasiado pequeño, mejor WAIT
   if (
     signal !== 'WAIT' &&
     (!tpPercent || Number(tpPercent) < 0.25 || !riskPercent || Number(riskPercent) < 0.08)
@@ -218,31 +209,17 @@ function buildSignal(rows) {
     confidence = Math.min(58 + Math.floor(score / 2), 95);
   }
 
-  // --- NUEVO SISTEMA INTRADÍA ---
   let intradayScore = 0;
 
-  // Tendencia
   if (trendStrengthLong || trendStrengthShort) intradayScore += 2;
-
-  // Momentum
   if (momentumLong || momentumShort) intradayScore += 2;
-
-  // Volumen
   if (volumeStrong) intradayScore += 2;
-
-  // Vela fuerte
   if (candleStrongLong || candleStrongShort) intradayScore += 2;
-
-  // Breakout
   if (breakoutLong || breakoutShort) intradayScore += 1;
-
-  // R/R
   if (rr && Number(rr) >= 2) intradayScore += 1;
 
-  // Normalizamos a 10
   if (intradayScore > 10) intradayScore = 10;
 
-  // --- STATUS ---
   let status = 'DESCARTADA';
   if (intradayScore >= 8) status = 'OPERABLE';
   else if (intradayScore >= 6) status = 'WATCHLIST';
@@ -257,7 +234,7 @@ function buildSignal(rows) {
     entry: formatNumber(last.close),
     stop: formatNumber(stop),
     takeProfit: formatNumber(takeProfit),
-    rr,
+    rr: rr !== null ? Number(rr.toFixed(2)) : null,
     riskPercent,
     reasons,
   };
@@ -300,7 +277,7 @@ async function fetchKlines(symbol, interval) {
   }
 
   return data.data
-    .map(k => ({
+    .map((k) => ({
       time: Number(k[0]),
       open: Number(k[1]),
       high: Number(k[2]),
