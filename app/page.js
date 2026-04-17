@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import SignalCard from '../components/SignalCard';
 
-const DEFAULT_SYMBOLS = 'BTCUSDT, ETHUSDT, SOLUSDT';
+const DEFAULT_SYMBOLS = 'BTCUSDT, ETHUSDT, SOLUSDT, XRPUSDT, ADAUSDT';
 
 function toNum(value) {
   const n = Number(value);
