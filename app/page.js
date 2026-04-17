@@ -122,14 +122,14 @@ export default function HomePage() {
   }, [autoRefresh, refreshSeconds, timeframe, symbolsInput]);
 
   const visibleResults = useMemo(() => {
-    const sorted = [...results].sort(
-      (a, b) => (b.intradayScore || 0) - (a.intradayScore || 0)
-    );
+  const sorted = [...results].sort(
+    (a, b) => (b.intradayScore || 0) - (a.intradayScore || 0)
+  );
 
-    return onlyActionable
-      ? sorted.filter((item) => item.status === 'OPERABLE')
-      : sorted.filter((item) => item.status !== 'DESCARTADA');
-  }, [results, onlyActionable]);
+  return onlyActionable
+    ? sorted.filter((item) => item.status === 'OPERABLE')
+    : sorted;
+}, [results, onlyActionable]);
 
   const stats = useMemo(
     () => ({
