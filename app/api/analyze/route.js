@@ -221,9 +221,9 @@ function syncPaperBroker(results) {
   for (const item of results) {
     const rrValue = toNum(item.rr);
     const passesQualityFilter =
-      (item.intradayScore || 0) >= 8 &&
+      (item.intradayScore || 0) >= 7 &&
       rrValue !== null &&
-      rrValue >= 2.2;
+      rrValue >= 1.8;
 
     if (
       item.status === 'OPERABLE' &&
@@ -337,15 +337,14 @@ function buildSignal(rows) {
   const breakoutLong = last.close > prev.high;
   const breakoutShort = last.close < prev.low;
 
-  // AJUSTE FINO: momentum menos tardío
   const momentumLong =
     rsi14[i] !== null &&
     rsi14[i] >= 50 &&
-    rsi14[i] <= 58;
+    rsi14[i] <= 60;
 
   const momentumShort =
     rsi14[i] !== null &&
-    rsi14[i] >= 42 &&
+    rsi14[i] >= 40 &&
     rsi14[i] <= 50;
 
   const volumeStrong = rvol >= 1.8;
@@ -384,8 +383,7 @@ function buildSignal(rows) {
     (candleExpansion ? 10 : 0) +
     (candleStrongShort ? 15 : 0);
 
-  // AJUSTE FINO: exigir más confirmación
-  if (longScore >= 70) {
+  if (longScore >= 67) {
     signal = 'LONG';
     score = longScore;
 
@@ -397,10 +395,8 @@ function buildSignal(rows) {
     if (candleStrongLong) reasons.push('Cierre fuerte cerca del máximo');
 
     stop = Math.min(...lows.slice(-5));
-
-    // AJUSTE FINO: TP más cercano para intradía
     takeProfit = last.close + (last.close - stop) * 1.8;
-  } else if (shortScore >= 70) {
+  } else if (shortScore >= 67) {
     signal = 'SHORT';
     score = shortScore;
 
@@ -412,8 +408,6 @@ function buildSignal(rows) {
     if (candleStrongShort) reasons.push('Cierre fuerte cerca del mínimo');
 
     stop = Math.max(...highs.slice(-5));
-
-    // AJUSTE FINO: TP más cercano para intradía
     takeProfit = last.close - (stop - last.close) * 1.8;
   } else {
     score = Math.max(longScore, shortScore);
