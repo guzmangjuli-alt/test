@@ -12,6 +12,12 @@ function badgeClass(signal) {
   return 'badge wait';
 }
 
+function statusColor(status) {
+  if (status === 'OPERABLE') return '#22c55e';
+  if (status === 'WATCHLIST') return '#f59e0b';
+  return '#ef4444';
+}
+
 export default function SignalCard({ item }) {
   return (
     <article className="signal-card">
@@ -19,8 +25,28 @@ export default function SignalCard({ item }) {
         <div>
           <h3 className="signal-title">{item.symbol}</h3>
           <div className="signal-sub">Score del setup: {item.score}/100</div>
+          <div className="signal-sub">Score intradía: {item.intradayScore ?? '-'}/10</div>
         </div>
         <span className={badgeClass(item.signal)}>{item.signal}</span>
+      </div>
+
+      <div
+        className="mini"
+        style={{
+          marginTop: 12,
+          border: `1px solid ${statusColor(item.status)}`,
+        }}
+      >
+        <div className="mini-label">Estado operativo</div>
+        <div
+          className="mini-value"
+          style={{
+            color: statusColor(item.status),
+            fontWeight: 700,
+          }}
+        >
+          {item.status ?? '-'}
+        </div>
       </div>
 
       <div className="mini-grid">
