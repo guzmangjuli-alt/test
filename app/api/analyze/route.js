@@ -146,7 +146,7 @@ function buildSignal(rows) {
     (candleExpansion ? 10 : 0) +
     (candleStrongShort ? 15 : 0);
 
-  if (longScore >= 82) {
+  if (longScore >= 65) {
     signal = 'LONG';
     score = longScore;
 
@@ -159,7 +159,7 @@ function buildSignal(rows) {
 
     stop = Math.min(...lows.slice(-5));
     takeProfit = last.close + (last.close - stop) * 2.8;
-  } else if (shortScore >= 82) {
+  } else if (shortScore >= 65) {
     signal = 'SHORT';
     score = shortScore;
 
@@ -202,7 +202,7 @@ function buildSignal(rows) {
   // si el TP potencial es demasiado pequeño, mejor WAIT
   if (
     signal !== 'WAIT' &&
-    (!tpPercent || Number(tpPercent) < 0.45 || !riskPercent || Number(riskPercent) < 0.12)
+    (!tpPercent || Number(tpPercent) < 0.25 || !riskPercent || Number(riskPercent) < 0.08)
   ) {
     signal = 'WAIT';
     confidence = 0;
@@ -219,48 +219,48 @@ function buildSignal(rows) {
   }
 
   // --- NUEVO SISTEMA INTRADÍA ---
-let intradayScore = 0;
+  let intradayScore = 0;
 
-// Tendencia
-if (trendStrengthLong || trendStrengthShort) intradayScore += 2;
+  // Tendencia
+  if (trendStrengthLong || trendStrengthShort) intradayScore += 2;
 
-// Momentum
-if (momentumLong || momentumShort) intradayScore += 2;
+  // Momentum
+  if (momentumLong || momentumShort) intradayScore += 2;
 
-// Volumen
-if (volumeStrong) intradayScore += 2;
+  // Volumen
+  if (volumeStrong) intradayScore += 2;
 
-// Vela fuerte
-if (candleStrongLong || candleStrongShort) intradayScore += 2;
+  // Vela fuerte
+  if (candleStrongLong || candleStrongShort) intradayScore += 2;
 
-// Breakout
-if (breakoutLong || breakoutShort) intradayScore += 1;
+  // Breakout
+  if (breakoutLong || breakoutShort) intradayScore += 1;
 
-// R/R
-if (rr && Number(rr) >= 2) intradayScore += 1;
+  // R/R
+  if (rr && Number(rr) >= 2) intradayScore += 1;
 
-// Normalizamos a 10
-if (intradayScore > 10) intradayScore = 10;
+  // Normalizamos a 10
+  if (intradayScore > 10) intradayScore = 10;
 
-// --- STATUS ---
-let status = "DESCARTADA";
-if (intradayScore >= 8) status = "OPERABLE";
-else if (intradayScore >= 6) status = "WATCHLIST";
+  // --- STATUS ---
+  let status = 'DESCARTADA';
+  if (intradayScore >= 8) status = 'OPERABLE';
+  else if (intradayScore >= 6) status = 'WATCHLIST';
 
-return {
-  signal,
-  score, // tu score original (lo mantenemos)
-  intradayScore, // 🔥 NUEVO
-  status,        // 🔥 NUEVO
-  confidence,
-  price: formatNumber(last.close),
-  entry: formatNumber(last.close),
-  stop: formatNumber(stop),
-  takeProfit: formatNumber(takeProfit),
-  rr,
-  riskPercent,
-  reasons,
-};
+  return {
+    signal,
+    score,
+    intradayScore,
+    status,
+    confidence,
+    price: formatNumber(last.close),
+    entry: formatNumber(last.close),
+    stop: formatNumber(stop),
+    takeProfit: formatNumber(takeProfit),
+    rr,
+    riskPercent,
+    reasons,
+  };
 }
 
 function toOkx(symbol) {
@@ -277,7 +277,7 @@ async function fetchKlines(symbol, interval) {
     '1h': '1H',
   };
 
-  const bar = tfMap[interval] || '1m';
+  const bar = tfMap[interval] || '15m';
   const url = `https://www.okx.com/api/v5/market/candles?instId=${toOkx(symbol)}&bar=${bar}&limit=100`;
 
   const res = await fetch(url, {
@@ -315,7 +315,7 @@ export async function POST(req) {
   try {
     const body = await req.json();
     const symbols = Array.isArray(body?.symbols) ? body.symbols.slice(0, 10) : ['BTCUSDT'];
-    const timeframe = body?.timeframe || '1m';
+    const timeframe = body?.timeframe || '15m';
 
     const results = [];
 
@@ -329,6 +329,8 @@ export async function POST(req) {
           symbol,
           signal: 'WAIT',
           score: 0,
+          intradayScore: 0,
+          status: 'DESCARTADA',
           confidence: 0,
           price: null,
           entry: null,
