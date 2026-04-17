@@ -7,7 +7,7 @@ const DEFAULT_SYMBOLS = 'BTCUSDT, ETHUSDT, SOLUSDT';
 
 export default function HomePage() {
   const [symbolsInput, setSymbolsInput] = useState(DEFAULT_SYMBOLS);
-  const [timeframe, setTimeframe] = useState('1m');
+  const [timeframe, setTimeframe] = useState('15m');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const [results, setResults] = useState([]);
@@ -81,6 +81,7 @@ export default function HomePage() {
 
         if (
           audioEnabledRef.current &&
+          item.status === 'OPERABLE' &&
           (currentSignal === 'LONG' || currentSignal === 'SHORT') &&
           prevSignal !== currentSignal
         ) {
@@ -121,8 +122,13 @@ export default function HomePage() {
   }, [autoRefresh, refreshSeconds, timeframe, symbolsInput]);
 
   const visibleResults = useMemo(() => {
-    const sorted = [...results].sort((a, b) => (b.score || 0) - (a.score || 0));
-    return onlyActionable ? sorted.filter((item) => item.signal !== 'WAIT') : sorted;
+    const sorted = [...results].sort(
+      (a, b) => (b.intradayScore || 0) - (a.intradayScore || 0)
+    );
+
+    return onlyActionable
+      ? sorted.filter((item) => item.status === 'OPERABLE')
+      : sorted.filter((item) => item.status !== 'DESCARTADA');
   }, [results, onlyActionable]);
 
   const stats = useMemo(
@@ -140,9 +146,9 @@ export default function HomePage() {
         <section className="hero">
           <div>
             <div className="kicker">⚡ Julsignals</div>
-            <h1 className="title">Señales de scalping crypto</h1>
+            <h1 className="title">Señales intradía crypto</h1>
             <p className="subtitle">
-              Analiza tus pares favoritos y recibe entrada, stop, take profit, score del setup y motivo de la señal.
+              Analiza tus pares favoritos y recibe entrada, stop, take profit, score intradía y estado operativo del setup.
             </p>
           </div>
 
@@ -234,8 +240,8 @@ export default function HomePage() {
 
             <div className="toggle">
               <div>
-                <div className="toggle-title">Solo señales</div>
-                <div className="toggle-subtitle">Ocultar WAIT</div>
+                <div className="toggle-title">Solo operables</div>
+                <div className="toggle-subtitle">Ocultar watchlist</div>
               </div>
               <input
                 className="switch"
@@ -258,7 +264,7 @@ export default function HomePage() {
           {error ? <div className="error">{error}</div> : null}
 
           <div className="footer-note">
-            Activa el auto refresh a 30s si quieres que vigile señales nuevas y suene cuando aparezcan.
+            Activa el auto refresh a 30s para vigilar setups intradía nuevos y recibir aviso cuando aparezca una señal operable.
           </div>
         </section>
 
