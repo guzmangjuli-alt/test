@@ -5,106 +5,9 @@ import SignalCard from '../components/SignalCard';
 
 const DEFAULT_SYMBOLS = 'BTCUSDT, ETHUSDT, SOLUSDT';
 
-function todayKey() {
-  const now = new Date();
-  const y = now.getFullYear();
-  const m = String(now.getMonth() + 1).padStart(2, '0');
-  const d = String(now.getDate()).padStart(2, '0');
-  return `julsignals-daily-${y}-${m}-${d}`;
-}
-
-function nowText() {
-  return new Date().toLocaleTimeString('es-ES');
-}
-
 function toNum(value) {
   const n = Number(value);
   return Number.isFinite(n) ? n : null;
-}
-
-function sameTrade(a, b) {
-  if (!a || !b) return false;
-  if (a.symbol !== b.symbol) return false;
-  if (a.signal !== b.signal) return false;
-
-  const entryA = toNum(a.entry);
-  const entryB = toNum(b.entry);
-  const stopA = toNum(a.stop);
-  const stopB = toNum(b.stop);
-  const tpA = toNum(a.takeProfit);
-  const tpB = toNum(b.takeProfit);
-
-  if (
-    entryA === null || entryB === null ||
-    stopA === null || stopB === null ||
-    tpA === null || tpB === null
-  ) {
-    return false;
-  }
-
-  const entryDiff = Math.abs(entryA - entryB) / entryA;
-  const stopDiff = Math.abs(stopA - stopB) / stopA;
-  const tpDiff = Math.abs(tpA - tpB) / tpA;
-
-  return entryDiff <= 0.002 && stopDiff <= 0.003 && tpDiff <= 0.003;
-}
-
-function resolveTrade(trade, currentPrice) {
-  const price = toNum(currentPrice);
-  const tp = toNum(trade.takeProfit);
-  const sl = toNum(trade.stop);
-  const entry = toNum(trade.entry);
-
-  if (price === null || tp === null || sl === null || entry === null) return trade;
-  if (trade.result !== 'ACTIVA') return trade;
-
-  if (trade.signal === 'LONG') {
-    if (price >= tp) {
-      const pnlPercent = ((tp - entry) / entry) * 100;
-      return {
-        ...trade,
-        result: 'WIN',
-        closedAt: nowText(),
-        closePrice: tp,
-        pnlPercent: pnlPercent.toFixed(2),
-      };
-    }
-    if (price <= sl) {
-      const pnlPercent = ((sl - entry) / entry) * 100;
-      return {
-        ...trade,
-        result: 'LOSE',
-        closedAt: nowText(),
-        closePrice: sl,
-        pnlPercent: pnlPercent.toFixed(2),
-      };
-    }
-  }
-
-  if (trade.signal === 'SHORT') {
-    if (price <= tp) {
-      const pnlPercent = ((entry - tp) / entry) * 100;
-      return {
-        ...trade,
-        result: 'WIN',
-        closedAt: nowText(),
-        closePrice: tp,
-        pnlPercent: pnlPercent.toFixed(2),
-      };
-    }
-    if (price >= sl) {
-      const pnlPercent = ((entry - sl) / entry) * 100;
-      return {
-        ...trade,
-        result: 'LOSE',
-        closedAt: nowText(),
-        closePrice: sl,
-        pnlPercent: pnlPercent.toFixed(2),
-      };
-    }
-  }
-
-  return trade;
 }
 
 export default function HomePage() {
@@ -117,15 +20,24 @@ export default function HomePage() {
   const [refreshSeconds, setRefreshSeconds] = useState('30');
   const [onlyActionable, setOnlyActionable] = useState(false);
   const [lastUpdated, setLastUpdated] = useState('');
-  const [dailyTrades, setDailyTrades] = useState([]);
   const [positionSize, setPositionSize] = useState('100');
-  const [showTestTools, setShowTestTools] = useState(false);
+  const [paperBroker, setPaperBroker] = useState({
+    dayKey: '',
+    trades: [],
+    activeTrades: [],
+    closedTrades: [],
+    summary: {
+      active: 0,
+      wins: 0,
+      losses: 0,
+      winRate: 0,
+      pnlTotalPercent: 0,
+    },
+  });
 
   const intervalRef = useRef(null);
   const lastSignalsRef = useRef({});
   const audioEnabledRef = useRef(false);
-
-  const storageKey = todayKey();
 
   const symbols = useMemo(
     () =>
@@ -137,24 +49,9 @@ export default function HomePage() {
     [symbolsInput]
   );
 
-  useEffect(() => {
-    try {
-      const raw = localStorage.getItem(storageKey);
-      if (raw) {
-        setDailyTrades(JSON.parse(raw));
-      } else {
-        setDailyTrades([]);
-      }
-    } catch {
-      setDailyTrades([]);
-    }
-  }, [storageKey]);
-
-  useEffect(() => {
-    try {
-      localStorage.setItem(storageKey, JSON.stringify(dailyTrades));
-    } catch {}
-  }, [dailyTrades, storageKey]);
+  function nowText() {
+    return new Date().toLocaleTimeString('es-ES');
+  }
 
   function playSignalSound() {
     try {
@@ -183,48 +80,7 @@ export default function HomePage() {
     }
   }
 
-  function addTestTrade(type = 'WIN') {
-    const entry = 100;
-    const stop = 99.5;
-    const takeProfit = 101.4;
-
-    const pnlPercent =
-      type === 'WIN'
-        ? (((takeProfit - entry) / entry) * 100).toFixed(2)
-        : type === 'LOSE'
-        ? (((stop - entry) / entry) * 100).toFixed(2)
-        : null;
-
-    const trade = {
-      id: `test-${type}-${Date.now()}`,
-      symbol: type === 'LOSE' ? 'ETHUSDT' : 'BTCUSDT',
-      signal: 'LONG',
-      entry,
-      stop,
-      takeProfit,
-      score: 75,
-      intradayScore: 8,
-      confidence: 95,
-      rr: 2.8,
-      createdAt: nowText(),
-      result: type === 'ACTIVE' ? 'ACTIVA' : type,
-      closedAt: type === 'ACTIVE' ? null : nowText(),
-      closePrice: type === 'WIN' ? takeProfit : type === 'LOSE' ? stop : null,
-      pnlPercent,
-      isTest: true,
-    };
-
-    setDailyTrades((prev) => [trade, ...prev]);
-  }
-
-  function clearTodayTrades() {
-    setDailyTrades([]);
-    try {
-      localStorage.removeItem(storageKey);
-    } catch {}
-  }
-
-  async function analyzeAll(showSpinner = true) {
+  async function analyzeAll(showSpinner = true, resetPaperBroker = false) {
     if (!symbols.length) return;
     if (showSpinner) setLoading(true);
     setError('');
@@ -233,7 +89,7 @@ export default function HomePage() {
       const response = await fetch('/api/analyze', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ symbols, timeframe }),
+        body: JSON.stringify({ symbols, timeframe, resetPaperBroker }),
       });
 
       const data = await response.json();
@@ -259,59 +115,22 @@ export default function HomePage() {
       }
 
       setResults(nextResults);
-      setLastUpdated(nowText());
-
-      setDailyTrades((prev) => {
-        let updated = [...prev];
-
-        for (const item of nextResults) {
-          const rrValue = toNum(item.rr);
-          const passesQualityFilter =
-            (item.intradayScore || 0) >= 7 && rrValue !== null && rrValue >= 2;
-
-          if (
-            item.status === 'OPERABLE' &&
-            passesQualityFilter &&
-            (item.signal === 'LONG' || item.signal === 'SHORT') &&
-            item.entry &&
-            item.stop &&
-            item.takeProfit
-          ) {
-            const candidate = {
-              id: `${item.symbol}-${item.signal}-${item.entry}-${Date.now()}`,
-              symbol: item.symbol,
-              signal: item.signal,
-              entry: item.entry,
-              stop: item.stop,
-              takeProfit: item.takeProfit,
-              score: item.score,
-              intradayScore: item.intradayScore,
-              confidence: item.confidence,
-              rr: item.rr,
-              createdAt: nowText(),
-              result: 'ACTIVA',
-              isTest: false,
-            };
-
-            const exists = updated.some((trade) => sameTrade(trade, candidate));
-
-            if (!exists) {
-              updated.unshift(candidate);
-            }
-          }
+      setPaperBroker(
+        data.paperBroker || {
+          dayKey: '',
+          trades: [],
+          activeTrades: [],
+          closedTrades: [],
+          summary: {
+            active: 0,
+            wins: 0,
+            losses: 0,
+            winRate: 0,
+            pnlTotalPercent: 0,
+          },
         }
-
-        updated = updated.map((trade) => {
-          if (trade.result !== 'ACTIVA') return trade;
-
-          const current = nextResults.find((item) => item.symbol === trade.symbol);
-          if (!current) return trade;
-
-          return resolveTrade(trade, current.price);
-        });
-
-        return updated;
-      });
+      );
+      setLastUpdated(nowText());
 
       if (hasNewOperableSignal) {
         playSignalSound();
@@ -325,7 +144,7 @@ export default function HomePage() {
   }
 
   useEffect(() => {
-    analyzeAll(true);
+    analyzeAll(true, false);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
@@ -334,7 +153,7 @@ export default function HomePage() {
     if (!autoRefresh) return undefined;
 
     const seconds = Math.max(5, Number(refreshSeconds) || 30);
-    intervalRef.current = setInterval(() => analyzeAll(false), seconds * 1000);
+    intervalRef.current = setInterval(() => analyzeAll(false, false), seconds * 1000);
 
     return () => clearInterval(intervalRef.current);
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -359,39 +178,26 @@ export default function HomePage() {
     [results]
   );
 
-  const dailyStats = useMemo(() => {
-    const wins = dailyTrades.filter((t) => t.result === 'WIN').length;
-    const losses = dailyTrades.filter((t) => t.result === 'LOSE').length;
-    const active = dailyTrades.filter((t) => t.result === 'ACTIVA').length;
-    const closed = wins + losses;
-    const winRate = closed > 0 ? ((wins / closed) * 100).toFixed(0) : '0';
-
-    const pnlTotalPercent = dailyTrades.reduce((acc, trade) => {
-      const pnl = Number(trade.pnlPercent);
-      return Number.isFinite(pnl) ? acc + pnl : acc;
-    }, 0);
-
+  const pnlTotalEur = useMemo(() => {
     const position = Number(positionSize) || 0;
-    const pnlTotalEur = dailyTrades.reduce((acc, trade) => {
+    return paperBroker.closedTrades.reduce((acc, trade) => {
       const pnl = Number(trade.pnlPercent);
       if (!Number.isFinite(pnl)) return acc;
       return acc + position * (pnl / 100);
     }, 0);
-
-    return {
-      wins,
-      losses,
-      active,
-      winRate,
-      pnlTotalPercent: pnlTotalPercent.toFixed(2),
-      pnlTotalEur: pnlTotalEur.toFixed(2),
-    };
-  }, [dailyTrades, positionSize]);
+  }, [paperBroker.closedTrades, positionSize]);
 
   function resultColor(result) {
     if (result === 'WIN') return '#22c55e';
     if (result === 'LOSE') return '#ef4444';
     return '#f59e0b';
+  }
+
+  function tradeEur(trade) {
+    const position = Number(positionSize) || 0;
+    const pnl = Number(trade.pnlPercent);
+    if (!Number.isFinite(pnl) || !position) return null;
+    return (position * (pnl / 100)).toFixed(2);
   }
 
   return (
@@ -451,7 +257,7 @@ export default function HomePage() {
                 className="button"
                 onClick={() => {
                   audioEnabledRef.current = true;
-                  analyzeAll(true);
+                  analyzeAll(true, false);
                 }}
                 disabled={loading || symbols.length === 0}
               >
@@ -527,19 +333,6 @@ export default function HomePage() {
                 placeholder="100"
               />
             </div>
-
-            <div className="toggle">
-              <div>
-                <div className="toggle-title">Herramientas test</div>
-                <div className="toggle-subtitle">Mostrar / ocultar pruebas</div>
-              </div>
-              <input
-                className="switch"
-                type="checkbox"
-                checked={showTestTools}
-                onChange={(e) => setShowTestTools(e.target.checked)}
-              />
-            </div>
           </div>
 
           <div className="meta">
@@ -587,130 +380,200 @@ export default function HomePage() {
                 <h3 style={{ margin: '8px 0 0 0' }}>Resultados de hoy</h3>
               </div>
               <div style={{ textAlign: 'right', fontSize: 13, opacity: 0.85 }}>
-                <div>ACTIVAS: <strong>{dailyStats.active}</strong></div>
-                <div>WIN: <strong>{dailyStats.wins}</strong></div>
-                <div>LOSE: <strong>{dailyStats.losses}</strong></div>
-                <div>WIN RATE: <strong>{dailyStats.winRate}%</strong></div>
+                <div>ACTIVAS: <strong>{paperBroker.summary.active}</strong></div>
+                <div>WIN: <strong>{paperBroker.summary.wins}</strong></div>
+                <div>LOSE: <strong>{paperBroker.summary.losses}</strong></div>
+                <div>WIN RATE: <strong>{paperBroker.summary.winRate}%</strong></div>
                 <div>
                   PnL %:{' '}
-                  <strong style={{ color: Number(dailyStats.pnlTotalPercent) >= 0 ? '#22c55e' : '#ef4444' }}>
-                    {Number(dailyStats.pnlTotalPercent) > 0 ? '+' : ''}
-                    {dailyStats.pnlTotalPercent}%
+                  <strong
+                    style={{
+                      color:
+                        Number(paperBroker.summary.pnlTotalPercent) >= 0 ? '#22c55e' : '#ef4444',
+                    }}
+                  >
+                    {Number(paperBroker.summary.pnlTotalPercent) > 0 ? '+' : ''}
+                    {paperBroker.summary.pnlTotalPercent}%
                   </strong>
                 </div>
                 <div>
                   PnL €:{' '}
-                  <strong style={{ color: Number(dailyStats.pnlTotalEur) >= 0 ? '#22c55e' : '#ef4444' }}>
-                    {Number(dailyStats.pnlTotalEur) > 0 ? '+' : ''}
-                    {dailyStats.pnlTotalEur}€
+                  <strong
+                    style={{
+                      color: Number(pnlTotalEur) >= 0 ? '#22c55e' : '#ef4444',
+                    }}
+                  >
+                    {Number(pnlTotalEur) > 0 ? '+' : ''}
+                    {pnlTotalEur.toFixed(2)}€
                   </strong>
                 </div>
               </div>
             </div>
 
-            {showTestTools ? (
-              <div style={{ display: 'flex', gap: 8, marginTop: 14, flexWrap: 'wrap' }}>
-                <button className="button" onClick={() => addTestTrade('ACTIVE')}>
-                  Test activa
-                </button>
-                <button className="button" onClick={() => addTestTrade('WIN')}>
-                  Test win
-                </button>
-                <button className="button" onClick={() => addTestTrade('LOSE')}>
-                  Test lose
-                </button>
-              </div>
-            ) : null}
-
             <div style={{ display: 'flex', gap: 8, marginTop: 14, flexWrap: 'wrap' }}>
-              <button className="button" onClick={clearTodayTrades}>
+              <button className="button" onClick={() => analyzeAll(true, true)}>
                 Reset día
               </button>
             </div>
 
-            <div style={{ marginTop: 16, display: 'grid', gap: 10 }}>
-              {dailyTrades.length === 0 ? (
-                <div className="empty" style={{ minHeight: 120 }}>
-                  Todavía no ha entrado ninguna señal OPERABLE hoy.
-                </div>
-              ) : (
-                dailyTrades.map((trade) => {
-                  const pnlEur = Number(positionSize) && trade.pnlPercent
-                    ? (Number(positionSize) * (Number(trade.pnlPercent) / 100)).toFixed(2)
-                    : null;
+            <div style={{ marginTop: 16, display: 'grid', gap: 16 }}>
+              <div>
+                <h4 style={{ margin: '0 0 10px 0' }}>Activas</h4>
+                {paperBroker.activeTrades.length === 0 ? (
+                  <div className="empty" style={{ minHeight: 90 }}>
+                    No hay operaciones activas ahora mismo.
+                  </div>
+                ) : (
+                  <div style={{ display: 'grid', gap: 10 }}>
+                    {paperBroker.activeTrades.map((trade) => {
+                      const eur = tradeEur(trade);
 
-                  return (
-                    <div
-                      key={trade.id}
-                      style={{
-                        border: `1px solid ${resultColor(trade.result)}`,
-                        borderRadius: 16,
-                        padding: 12,
-                        background: 'rgba(255,255,255,0.02)',
-                      }}
-                    >
-                      <div style={{ display: 'flex', justifyContent: 'space-between', gap: 10 }}>
-                        <div style={{ fontWeight: 700 }}>
-                          {trade.symbol}
-                          {trade.isTest ? (
-                            <span style={{ marginLeft: 8, fontSize: 11, opacity: 0.7 }}>
-                              TEST
-                            </span>
-                          ) : null}
+                      return (
+                        <div
+                          key={trade.id}
+                          style={{
+                            border: `1px solid ${resultColor(trade.result)}`,
+                            borderRadius: 16,
+                            padding: 12,
+                            background: 'rgba(255,255,255,0.02)',
+                          }}
+                        >
+                          <div style={{ display: 'flex', justifyContent: 'space-between', gap: 10 }}>
+                            <div style={{ fontWeight: 700 }}>{trade.symbol}</div>
+                            <div style={{ color: resultColor(trade.result), fontWeight: 700 }}>
+                              {trade.result}
+                            </div>
+                          </div>
+
+                          <div style={{ marginTop: 6, fontSize: 13, opacity: 0.9 }}>
+                            {trade.signal} · Entrada {trade.entry}
+                          </div>
+
+                          <div style={{ marginTop: 6, fontSize: 13, opacity: 0.9 }}>
+                            SL {trade.stop} · TP {trade.takeProfit}
+                          </div>
+
+                          <div style={{ marginTop: 6, fontSize: 13, opacity: 0.9 }}>
+                            RR {trade.rr ?? '-'}
+                            {trade.pnlPercent ? (
+                              <>
+                                {' · Resultado '}
+                                <span
+                                  style={{
+                                    color: Number(trade.pnlPercent) >= 0 ? '#22c55e' : '#ef4444',
+                                    fontWeight: 700,
+                                  }}
+                                >
+                                  {Number(trade.pnlPercent) > 0 ? '+' : ''}
+                                  {trade.pnlPercent}%
+                                </span>
+                              </>
+                            ) : null}
+                            {eur ? (
+                              <>
+                                {' · '}
+                                <span
+                                  style={{
+                                    color: Number(eur) >= 0 ? '#22c55e' : '#ef4444',
+                                    fontWeight: 700,
+                                  }}
+                                >
+                                  {Number(eur) > 0 ? '+' : ''}
+                                  {eur}€
+                                </span>
+                              </>
+                            ) : null}
+                          </div>
+
+                          <div style={{ marginTop: 6, fontSize: 12, opacity: 0.7 }}>
+                            Creada: {trade.createdAt}
+                          </div>
                         </div>
-                        <div style={{ color: resultColor(trade.result), fontWeight: 700 }}>
-                          {trade.result}
+                      );
+                    })}
+                  </div>
+                )}
+              </div>
+
+              <div>
+                <h4 style={{ margin: '0 0 10px 0' }}>Cerradas</h4>
+                {paperBroker.closedTrades.length === 0 ? (
+                  <div className="empty" style={{ minHeight: 90 }}>
+                    Todavía no hay operaciones cerradas hoy.
+                  </div>
+                ) : (
+                  <div style={{ display: 'grid', gap: 10 }}>
+                    {paperBroker.closedTrades.map((trade) => {
+                      const eur = tradeEur(trade);
+
+                      return (
+                        <div
+                          key={trade.id}
+                          style={{
+                            border: `1px solid ${resultColor(trade.result)}`,
+                            borderRadius: 16,
+                            padding: 12,
+                            background: 'rgba(255,255,255,0.02)',
+                          }}
+                        >
+                          <div style={{ display: 'flex', justifyContent: 'space-between', gap: 10 }}>
+                            <div style={{ fontWeight: 700 }}>{trade.symbol}</div>
+                            <div style={{ color: resultColor(trade.result), fontWeight: 700 }}>
+                              {trade.result}
+                            </div>
+                          </div>
+
+                          <div style={{ marginTop: 6, fontSize: 13, opacity: 0.9 }}>
+                            {trade.signal} · Entrada {trade.entry}
+                          </div>
+
+                          <div style={{ marginTop: 6, fontSize: 13, opacity: 0.9 }}>
+                            SL {trade.stop} · TP {trade.takeProfit}
+                          </div>
+
+                          <div style={{ marginTop: 6, fontSize: 13, opacity: 0.9 }}>
+                            RR {trade.rr ?? '-'}
+                            {trade.pnlPercent ? (
+                              <>
+                                {' · Resultado '}
+                                <span
+                                  style={{
+                                    color: Number(trade.pnlPercent) >= 0 ? '#22c55e' : '#ef4444',
+                                    fontWeight: 700,
+                                  }}
+                                >
+                                  {Number(trade.pnlPercent) > 0 ? '+' : ''}
+                                  {trade.pnlPercent}%
+                                </span>
+                              </>
+                            ) : null}
+                            {eur ? (
+                              <>
+                                {' · '}
+                                <span
+                                  style={{
+                                    color: Number(eur) >= 0 ? '#22c55e' : '#ef4444',
+                                    fontWeight: 700,
+                                  }}
+                                >
+                                  {Number(eur) > 0 ? '+' : ''}
+                                  {eur}€
+                                </span>
+                              </>
+                            ) : null}
+                          </div>
+
+                          <div style={{ marginTop: 6, fontSize: 12, opacity: 0.7 }}>
+                            Creada: {trade.createdAt}
+                            {trade.closedAt ? ` · Cerrada: ${trade.closedAt}` : ''}
+                            {trade.duration ? ` · Duración: ${trade.duration}` : ''}
+                          </div>
                         </div>
-                      </div>
-
-                      <div style={{ marginTop: 6, fontSize: 13, opacity: 0.9 }}>
-                        {trade.signal} · Entrada {trade.entry}
-                      </div>
-
-                      <div style={{ marginTop: 6, fontSize: 13, opacity: 0.9 }}>
-                        SL {trade.stop} · TP {trade.takeProfit}
-                      </div>
-
-                      <div style={{ marginTop: 6, fontSize: 13, opacity: 0.9 }}>
-                        RR {trade.rr ?? '-'}
-                        {trade.pnlPercent ? (
-                          <>
-                            {' · Resultado '}
-                            <span
-                              style={{
-                                color: Number(trade.pnlPercent) >= 0 ? '#22c55e' : '#ef4444',
-                                fontWeight: 700,
-                              }}
-                            >
-                              {Number(trade.pnlPercent) > 0 ? '+' : ''}
-                              {trade.pnlPercent}%
-                            </span>
-                          </>
-                        ) : null}
-                        {pnlEur ? (
-                          <>
-                            {' · '}
-                            <span
-                              style={{
-                                color: Number(pnlEur) >= 0 ? '#22c55e' : '#ef4444',
-                                fontWeight: 700,
-                              }}
-                            >
-                              {Number(pnlEur) > 0 ? '+' : ''}
-                              {pnlEur}€
-                            </span>
-                          </>
-                        ) : null}
-                      </div>
-
-                      <div style={{ marginTop: 6, fontSize: 12, opacity: 0.7 }}>
-                        Creada: {trade.createdAt}
-                        {trade.closedAt ? ` · Cerrada: ${trade.closedAt}` : ''}
-                      </div>
-                    </div>
-                  );
-                })
-              )}
+                      );
+                    })}
+                  </div>
+                )}
+              </div>
             </div>
           </aside>
         </section>
