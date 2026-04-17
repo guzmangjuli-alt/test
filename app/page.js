@@ -181,38 +181,6 @@ export default function HomePage() {
     }
   }
 
-  function addTestTrade(type = 'WIN') {
-    const entry = 100;
-    const stop = 99.5;
-    const takeProfit = 101.4;
-
-    const trade = {
-      id: `test-${type}-${Date.now()}`,
-      symbol: type === 'LOSE' ? 'ETHUSDT' : 'BTCUSDT',
-      signal: 'LONG',
-      entry,
-      stop,
-      takeProfit,
-      score: 75,
-      intradayScore: 8,
-      confidence: 95,
-      rr: '2.80',
-      createdAt: nowText(),
-      result: type === 'ACTIVE' ? 'ACTIVA' : type,
-      closedAt: type === 'ACTIVE' ? null : nowText(),
-      closePrice:
-        type === 'WIN' ? takeProfit :
-        type === 'LOSE' ? stop :
-        null,
-      pnlPercent:
-        type === 'WIN' ? (((takeProfit - entry) / entry) * 100).toFixed(2) :
-        type === 'LOSE' ? (((stop - entry) / entry) * 100).toFixed(2) :
-        null,
-    };
-
-    setDailyTrades((prev) => [trade, ...prev]);
-  }
-
   function clearTodayTrades() {
     setDailyTrades([]);
     try {
@@ -236,7 +204,7 @@ export default function HomePage() {
       if (!response.ok) throw new Error(data?.error || 'No se pudo analizar el mercado.');
 
       const nextResults = data.results || [];
-      let hasNewSignal = false;
+      let hasNewOperableSignal = false;
 
       for (const item of nextResults) {
         const prevSignal = lastSignalsRef.current[item.symbol];
@@ -248,7 +216,7 @@ export default function HomePage() {
           (currentSignal === 'LONG' || currentSignal === 'SHORT') &&
           prevSignal !== currentSignal
         ) {
-          hasNewSignal = true;
+          hasNewOperableSignal = true;
         }
 
         lastSignalsRef.current[item.symbol] = currentSignal;
@@ -303,7 +271,7 @@ export default function HomePage() {
         return updated;
       });
 
-      if (hasNewSignal) {
+      if (hasNewOperableSignal) {
         playSignalSound();
       }
     } catch (err) {
@@ -356,7 +324,18 @@ export default function HomePage() {
     const closed = wins + losses;
     const winRate = closed > 0 ? ((wins / closed) * 100).toFixed(0) : '0';
 
-    return { wins, losses, active, winRate };
+    const pnlTotal = dailyTrades.reduce((acc, trade) => {
+      const pnl = Number(trade.pnlPercent);
+      return Number.isFinite(pnl) ? acc + pnl : acc;
+    }, 0);
+
+    return {
+      wins,
+      losses,
+      active,
+      winRate,
+      pnlTotal: pnlTotal.toFixed(2),
+    };
   }, [dailyTrades]);
 
   function resultColor(result) {
@@ -526,19 +505,17 @@ export default function HomePage() {
                 <div>WIN: <strong>{dailyStats.wins}</strong></div>
                 <div>LOSE: <strong>{dailyStats.losses}</strong></div>
                 <div>WIN RATE: <strong>{dailyStats.winRate}%</strong></div>
+                <div>
+                  PnL:{' '}
+                  <strong style={{ color: Number(dailyStats.pnlTotal) >= 0 ? '#22c55e' : '#ef4444' }}>
+                    {Number(dailyStats.pnlTotal) > 0 ? '+' : ''}
+                    {dailyStats.pnlTotal}%
+                  </strong>
+                </div>
               </div>
             </div>
 
             <div style={{ display: 'flex', gap: 8, marginTop: 14, flexWrap: 'wrap' }}>
-              <button className="button" onClick={() => addTestTrade('ACTIVE')}>
-                Test activa
-              </button>
-              <button className="button" onClick={() => addTestTrade('WIN')}>
-                Test win
-              </button>
-              <button className="button" onClick={() => addTestTrade('LOSE')}>
-                Test lose
-              </button>
               <button className="button" onClick={clearTodayTrades}>
                 Reset día
               </button>
@@ -576,7 +553,7 @@ export default function HomePage() {
                     </div>
 
                     <div style={{ marginTop: 6, fontSize: 13, opacity: 0.9 }}>
-                      RR {trade.rr || '-'}
+                      RR {trade.rr ?? '-'}
                       {trade.pnlPercent ? (
                         <>
                           {' · Resultado '}
