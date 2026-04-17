@@ -10,6 +10,48 @@ function toNum(value) {
   return Number.isFinite(n) ? n : null;
 }
 
+function parseClockToMs(clockText) {
+  if (!clockText || typeof clockText !== 'string') return null;
+  const parts = clockText.split(':').map(Number);
+  if (parts.length < 2 || parts.some((p) => Number.isNaN(p))) return null;
+
+  const [hh, mm, ss = 0] = parts;
+  return ((hh * 60 + mm) * 60 + ss) * 1000;
+}
+
+function formatDuration(createdAt, closedAt) {
+  if (!createdAt || !closedAt) return '-';
+
+  const startMs = parseClockToMs(createdAt);
+  const endMs = parseClockToMs(closedAt);
+
+  if (startMs === null || endMs === null) return '-';
+
+  let diff = endMs - startMs;
+  if (diff < 0) diff += 24 * 60 * 60 * 1000;
+
+  const totalMinutes = Math.floor(diff / 60000);
+  const hours = Math.floor(totalMinutes / 60);
+  const minutes = totalMinutes % 60;
+
+  if (hours > 0) return `${hours}h ${minutes}min`;
+  return `${minutes} min`;
+}
+
+function durationMinutesBetween(createdAt, closedAt) {
+  if (!createdAt || !closedAt) return null;
+
+  const startMs = parseClockToMs(createdAt);
+  const endMs = parseClockToMs(closedAt);
+
+  if (startMs === null || endMs === null) return null;
+
+  let diff = endMs - startMs;
+  if (diff < 0) diff += 24 * 60 * 60 * 1000;
+
+  return Math.floor(diff / 60000);
+}
+
 export default function HomePage() {
   const [symbolsInput, setSymbolsInput] = useState(DEFAULT_SYMBOLS);
   const [timeframe, setTimeframe] = useState('15m');
@@ -34,8 +76,10 @@ export default function HomePage() {
       pnlTotalPercent: 0,
     },
   });
+  const [liveClock, setLiveClock] = useState(new Date().toLocaleTimeString('es-ES'));
 
   const intervalRef = useRef(null);
+  const liveClockRef = useRef(null);
   const lastSignalsRef = useRef({});
   const audioEnabledRef = useRef(false);
 
@@ -159,6 +203,18 @@ export default function HomePage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [autoRefresh, refreshSeconds, timeframe, symbolsInput]);
 
+  useEffect(() => {
+    if (liveClockRef.current) clearInterval(liveClockRef.current);
+
+    liveClockRef.current = setInterval(() => {
+      setLiveClock(new Date().toLocaleTimeString('es-ES'));
+    }, 1000);
+
+    return () => {
+      if (liveClockRef.current) clearInterval(liveClockRef.current);
+    };
+  }, []);
+
   const visibleResults = useMemo(() => {
     const sorted = [...results].sort(
       (a, b) => (b.intradayScore || 0) - (a.intradayScore || 0)
@@ -186,6 +242,51 @@ export default function HomePage() {
       return acc + position * (pnl / 100);
     }, 0);
   }, [paperBroker.closedTrades, positionSize]);
+
+  const analytics = useMemo(() => {
+    const closedTrades = paperBroker.closedTrades || [];
+    const winningTrades = closedTrades.filter((trade) => Number(trade.pnlPercent) > 0);
+    const losingTrades = closedTrades.filter((trade) => Number(trade.pnlPercent) < 0);
+
+    const grossProfit = winningTrades.reduce((acc, trade) => acc + Number(trade.pnlPercent || 0), 0);
+    const grossLossAbs = Math.abs(
+      losingTrades.reduce((acc, trade) => acc + Number(trade.pnlPercent || 0), 0)
+    );
+
+    const profitFactor =
+      grossLossAbs > 0 ? (grossProfit / grossLossAbs).toFixed(2) : grossProfit > 0 ? '∞' : '-';
+
+    const bestTrade = closedTrades.reduce((best, trade) => {
+      const pnl = Number(trade.pnlPercent);
+      if (!Number.isFinite(pnl)) return best;
+      if (!best) return trade;
+      return pnl > Number(best.pnlPercent) ? trade : best;
+    }, null);
+
+    const worstTrade = closedTrades.reduce((worst, trade) => {
+      const pnl = Number(trade.pnlPercent);
+      if (!Number.isFinite(pnl)) return worst;
+      if (!worst) return trade;
+      return pnl < Number(worst.pnlPercent) ? trade : worst;
+    }, null);
+
+    const durationValues = closedTrades
+      .map((trade) => durationMinutesBetween(trade.createdAt, trade.closedAt))
+      .filter((value) => Number.isFinite(value));
+
+    const avgDurationMinutes =
+      durationValues.length > 0
+        ? Math.round(durationValues.reduce((a, b) => a + b, 0) / durationValues.length)
+        : null;
+
+    return {
+      profitFactor,
+      bestTrade,
+      worstTrade,
+      avgDurationMinutes,
+      tooManyActive: (paperBroker.summary?.active || 0) >= 5,
+    };
+  }, [paperBroker]);
 
   function resultColor(result) {
     if (result === 'WIN') return '#22c55e';
@@ -410,10 +511,67 @@ export default function HomePage() {
               </div>
             </div>
 
+            {analytics.tooManyActive ? (
+              <div
+                style={{
+                  marginTop: 14,
+                  padding: 10,
+                  borderRadius: 12,
+                  border: '1px solid #f59e0b',
+                  background: 'rgba(245, 158, 11, 0.08)',
+                  fontSize: 13,
+                  fontWeight: 600,
+                }}
+              >
+                ⚠️ Demasiadas operaciones abiertas. Vigila si el sistema está acumulando activas sin cerrar.
+              </div>
+            ) : null}
+
             <div style={{ display: 'flex', gap: 8, marginTop: 14, flexWrap: 'wrap' }}>
               <button className="button" onClick={() => analyzeAll(true, true)}>
                 Reset día
               </button>
+            </div>
+
+            <div
+              style={{
+                marginTop: 16,
+                display: 'grid',
+                gap: 10,
+                gridTemplateColumns: 'repeat(2, minmax(0, 1fr))',
+              }}
+            >
+              <div className="mini">
+                <div className="mini-label">Profit factor</div>
+                <div className="mini-value">{analytics.profitFactor}</div>
+              </div>
+
+              <div className="mini">
+                <div className="mini-label">Duración media</div>
+                <div className="mini-value">
+                  {analytics.avgDurationMinutes !== null ? `${analytics.avgDurationMinutes} min` : '-'}
+                </div>
+              </div>
+
+              <div className="mini" style={{ gridColumn: '1 / -1' }}>
+                <div className="mini-label">Best trade</div>
+                <div className="mini-value small">
+                  {analytics.bestTrade
+                    ? `${analytics.bestTrade.symbol} ${
+                        Number(analytics.bestTrade.pnlPercent) > 0 ? '+' : ''
+                      }${analytics.bestTrade.pnlPercent}%`
+                    : '-'}
+                </div>
+              </div>
+
+              <div className="mini" style={{ gridColumn: '1 / -1' }}>
+                <div className="mini-label">Worst trade</div>
+                <div className="mini-value small">
+                  {analytics.worstTrade
+                    ? `${analytics.worstTrade.symbol} ${analytics.worstTrade.pnlPercent}%`
+                    : '-'}
+                </div>
+              </div>
             </div>
 
             <div style={{ marginTop: 16, display: 'grid', gap: 16 }}>
@@ -427,6 +585,7 @@ export default function HomePage() {
                   <div style={{ display: 'grid', gap: 10 }}>
                     {paperBroker.activeTrades.map((trade) => {
                       const eur = tradeEur(trade);
+                      const liveDuration = formatDuration(trade.createdAt, liveClock);
 
                       return (
                         <div
@@ -486,7 +645,7 @@ export default function HomePage() {
                           </div>
 
                           <div style={{ marginTop: 6, fontSize: 12, opacity: 0.7 }}>
-                            Creada: {trade.createdAt}
+                            Creada: {trade.createdAt} · Duración: {liveDuration}
                           </div>
                         </div>
                       );
