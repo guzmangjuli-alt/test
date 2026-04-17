@@ -235,9 +235,7 @@ export default function HomePage() {
               result: 'ACTIVA',
             };
 
-            const exists = updated.some(
-              (trade) => trade.result === 'ACTIVA' && sameTrade(trade, candidate)
-            );
+            const exists = updated.some((trade) => sameTrade(trade, candidate));
 
             if (!exists) {
               updated.unshift(candidate);
@@ -451,7 +449,7 @@ export default function HomePage() {
         <section
           style={{
             display: 'grid',
-            gridTemplateColumns: 'minmax(0, 1fr) 360px',
+            gridTemplateColumns: 'minmax(0, 1fr) 400px',
             gap: 20,
             alignItems: 'start',
           }}
@@ -487,7 +485,7 @@ export default function HomePage() {
             <div style={{ marginTop: 16, display: 'grid', gap: 10 }}>
               {dailyTrades.length === 0 ? (
                 <div className="empty" style={{ minHeight: 120 }}>
-                  Aún no hay operaciones diarias registradas.
+                  Todavía no ha entrado ninguna señal OPERABLE hoy  .
                 </div>
               ) : (
                 dailyTrades.map((trade) => (
