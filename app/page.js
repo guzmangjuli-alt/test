@@ -29,10 +29,24 @@ function sameTrade(a, b) {
 
   const entryA = toNum(a.entry);
   const entryB = toNum(b.entry);
-  if (entryA === null || entryB === null) return false;
+  const stopA = toNum(a.stop);
+  const stopB = toNum(b.stop);
+  const tpA = toNum(a.takeProfit);
+  const tpB = toNum(b.takeProfit);
 
-  const diff = Math.abs(entryA - entryB) / entryA;
-  return diff <= 0.0015; // 0.15%
+  if (
+    entryA === null || entryB === null ||
+    stopA === null || stopB === null ||
+    tpA === null || tpB === null
+  ) {
+    return false;
+  }
+
+  const entryDiff = Math.abs(entryA - entryB) / entryA;
+  const stopDiff = Math.abs(stopA - stopB) / stopA;
+  const tpDiff = Math.abs(tpA - tpB) / tpA;
+
+  return entryDiff <= 0.002 && stopDiff <= 0.003 && tpDiff <= 0.003;
 }
 
 function resolveTrade(trade, currentPrice) {
