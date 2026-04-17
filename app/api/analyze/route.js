@@ -1,3 +1,5 @@
+export const runtime = 'nodejs';
+
 function ema(values, period) {
   const k = 2 / (period + 1);
   let prev = values[0];
@@ -48,6 +50,242 @@ function percentMove(from, to) {
   return Math.abs((to - from) / from) * 100;
 }
 
+function getDayKey() {
+  const now = new Date();
+  const y = now.getFullYear();
+  const m = String(now.getMonth() + 1).padStart(2, '0');
+  const d = String(now.getDate()).padStart(2, '0');
+  return `${y}-${m}-${d}`;
+}
+
+function nowText() {
+  return new Date().toLocaleTimeString('es-ES');
+}
+
+function toNum(value) {
+  const n = Number(value);
+  return Number.isFinite(n) ? n : null;
+}
+
+function parseClockToMs(clockText) {
+  if (!clockText || typeof clockText !== 'string') return null;
+  const parts = clockText.split(':').map(Number);
+  if (parts.length < 2 || parts.some((p) => Number.isNaN(p))) return null;
+
+  const [hh, mm, ss = 0] = parts;
+  return ((hh * 60 + mm) * 60 + ss) * 1000;
+}
+
+function formatDuration(createdAt, closedAt) {
+  if (!createdAt || !closedAt) return '-';
+
+  const startMs = parseClockToMs(createdAt);
+  const endMs = parseClockToMs(closedAt);
+
+  if (startMs === null || endMs === null) return '-';
+
+  let diff = endMs - startMs;
+  if (diff < 0) diff += 24 * 60 * 60 * 1000;
+
+  const totalMinutes = Math.floor(diff / 60000);
+  const hours = Math.floor(totalMinutes / 60);
+  const minutes = totalMinutes % 60;
+
+  if (hours > 0) return `${hours}h ${minutes}min`;
+  return `${minutes} min`;
+}
+
+function sameTrade(a, b) {
+  if (!a || !b) return false;
+  if (a.symbol !== b.symbol) return false;
+  if (a.signal !== b.signal) return false;
+
+  const entryA = toNum(a.entry);
+  const entryB = toNum(b.entry);
+  const stopA = toNum(a.stop);
+  const stopB = toNum(b.stop);
+  const tpA = toNum(a.takeProfit);
+  const tpB = toNum(b.takeProfit);
+
+  if (
+    entryA === null || entryB === null ||
+    stopA === null || stopB === null ||
+    tpA === null || tpB === null
+  ) {
+    return false;
+  }
+
+  const entryDiff = Math.abs(entryA - entryB) / entryA;
+  const stopDiff = Math.abs(stopA - stopB) / stopA;
+  const tpDiff = Math.abs(tpA - tpB) / tpA;
+
+  return entryDiff <= 0.002 && stopDiff <= 0.003 && tpDiff <= 0.003;
+}
+
+function resolveTrade(trade, currentPrice) {
+  const price = toNum(currentPrice);
+  const tp = toNum(trade.takeProfit);
+  const sl = toNum(trade.stop);
+  const entry = toNum(trade.entry);
+
+  if (price === null || tp === null || sl === null || entry === null) return trade;
+  if (trade.result !== 'ACTIVA') return trade;
+
+  if (trade.signal === 'LONG') {
+    if (price >= tp) {
+      const pnlPercent = ((tp - entry) / entry) * 100;
+      return {
+        ...trade,
+        result: 'WIN',
+        closedAt: nowText(),
+        closePrice: tp,
+        pnlPercent: pnlPercent.toFixed(2),
+        duration: formatDuration(trade.createdAt, nowText()),
+      };
+    }
+    if (price <= sl) {
+      const pnlPercent = ((sl - entry) / entry) * 100;
+      return {
+        ...trade,
+        result: 'LOSE',
+        closedAt: nowText(),
+        closePrice: sl,
+        pnlPercent: pnlPercent.toFixed(2),
+        duration: formatDuration(trade.createdAt, nowText()),
+      };
+    }
+  }
+
+  if (trade.signal === 'SHORT') {
+    if (price <= tp) {
+      const pnlPercent = ((entry - tp) / entry) * 100;
+      return {
+        ...trade,
+        result: 'WIN',
+        closedAt: nowText(),
+        closePrice: tp,
+        pnlPercent: pnlPercent.toFixed(2),
+        duration: formatDuration(trade.createdAt, nowText()),
+      };
+    }
+    if (price >= sl) {
+      const pnlPercent = ((entry - sl) / entry) * 100;
+      return {
+        ...trade,
+        result: 'LOSE',
+        closedAt: nowText(),
+        closePrice: sl,
+        pnlPercent: pnlPercent.toFixed(2),
+        duration: formatDuration(trade.createdAt, nowText()),
+      };
+    }
+  }
+
+  return trade;
+}
+
+let paperBrokerState = {
+  dayKey: getDayKey(),
+  trades: [],
+};
+
+function ensurePaperBrokerDay() {
+  const currentDay = getDayKey();
+  if (paperBrokerState.dayKey !== currentDay) {
+    paperBrokerState = {
+      dayKey: currentDay,
+      trades: [],
+    };
+  }
+}
+
+function resetPaperBrokerDay() {
+  paperBrokerState = {
+    dayKey: getDayKey(),
+    trades: [],
+  };
+}
+
+function syncPaperBroker(results) {
+  ensurePaperBrokerDay();
+
+  // 1) Actualizar trades activos con el precio actual
+  paperBrokerState.trades = paperBrokerState.trades.map((trade) => {
+    if (trade.result !== 'ACTIVA') return trade;
+
+    const current = results.find((item) => item.symbol === trade.symbol);
+    if (!current) return trade;
+
+    return resolveTrade(trade, current.price);
+  });
+
+  // 2) Añadir nuevas señales operables de calidad
+  for (const item of results) {
+    const rrValue = toNum(item.rr);
+    const passesQualityFilter =
+      (item.intradayScore || 0) >= 8 &&
+      rrValue !== null &&
+      rrValue >= 2.2;
+
+    if (
+      item.status === 'OPERABLE' &&
+      passesQualityFilter &&
+      (item.signal === 'LONG' || item.signal === 'SHORT') &&
+      item.entry &&
+      item.stop &&
+      item.takeProfit
+    ) {
+      const candidate = {
+        id: `${item.symbol}-${item.signal}-${item.entry}-${Date.now()}`,
+        symbol: item.symbol,
+        signal: item.signal,
+        entry: item.entry,
+        stop: item.stop,
+        takeProfit: item.takeProfit,
+        score: item.score,
+        intradayScore: item.intradayScore,
+        confidence: item.confidence,
+        rr: item.rr,
+        createdAt: nowText(),
+        result: 'ACTIVA',
+      };
+
+      const exists = paperBrokerState.trades.some((trade) => sameTrade(trade, candidate));
+
+      if (!exists) {
+        paperBrokerState.trades.unshift(candidate);
+      }
+    }
+  }
+
+  const activeTrades = paperBrokerState.trades.filter((trade) => trade.result === 'ACTIVA');
+  const closedTrades = paperBrokerState.trades.filter((trade) => trade.result !== 'ACTIVA');
+
+  const wins = closedTrades.filter((trade) => trade.result === 'WIN').length;
+  const losses = closedTrades.filter((trade) => trade.result === 'LOSE').length;
+  const closedCount = wins + losses;
+  const winRate = closedCount > 0 ? Number(((wins / closedCount) * 100).toFixed(0)) : 0;
+
+  const pnlTotalPercent = closedTrades.reduce((acc, trade) => {
+    const pnl = Number(trade.pnlPercent);
+    return Number.isFinite(pnl) ? acc + pnl : acc;
+  }, 0);
+
+  return {
+    dayKey: paperBrokerState.dayKey,
+    trades: paperBrokerState.trades,
+    activeTrades,
+    closedTrades,
+    summary: {
+      active: activeTrades.length,
+      wins,
+      losses,
+      winRate,
+      pnlTotalPercent: Number(pnlTotalPercent.toFixed(2)),
+    },
+  };
+}
+
 function buildSignal(rows) {
   const closes = rows.map((r) => r.close);
   const highs = rows.map((r) => r.high);
@@ -71,7 +309,8 @@ function buildSignal(rows) {
     rows
       .slice(-10)
       .map((r) => r.high - r.low)
-      .reduce((a, b) => a + b, 0) / Math.max(rows.slice(-10).length, 1);
+      .reduce((a, b) => a + b, 0) /
+    Math.max(rows.slice(-10).length, 1);
 
   const rvol = avgVol20 > 0 ? last.volume / avgVol20 : 0;
 
@@ -293,6 +532,12 @@ export async function POST(req) {
     const body = await req.json();
     const symbols = Array.isArray(body?.symbols) ? body.symbols.slice(0, 10) : ['BTCUSDT'];
     const timeframe = body?.timeframe || '15m';
+    const resetPaperBroker = Boolean(body?.resetPaperBroker);
+
+    ensurePaperBrokerDay();
+    if (resetPaperBroker) {
+      resetPaperBrokerDay();
+    }
 
     const results = [];
 
@@ -320,7 +565,9 @@ export async function POST(req) {
       }
     }
 
-    return Response.json({ results }, { status: 200 });
+    const paperBroker = syncPaperBroker(results);
+
+    return Response.json({ results, paperBroker }, { status: 200 });
   } catch (err) {
     return Response.json(
       { error: err.message || 'Error interno en /api/analyze' },
