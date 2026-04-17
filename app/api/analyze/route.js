@@ -226,9 +226,9 @@ function syncPaperBroker(results) {
       rrValue >= 1.8;
 
     if (
-      item.status === 'OPERABLE' &&
-      passesQualityFilter &&
       (item.signal === 'LONG' || item.signal === 'SHORT') &&
+      item.status !== 'DESCARTADA' &&
+      passesQualityFilter &&
       item.entry &&
       item.stop &&
       item.takeProfit
@@ -465,8 +465,13 @@ function buildSignal(rows) {
   if (intradayScore > 10) intradayScore = 10;
 
   let status = 'DESCARTADA';
-  if (intradayScore >= 8) status = 'OPERABLE';
-  else if (intradayScore >= 6) status = 'WATCHLIST';
+
+  if (signal === 'LONG' || signal === 'SHORT') {
+    status = intradayScore >= 7 ? 'OPERABLE' : 'WATCHLIST';
+  } else {
+    if (intradayScore >= 7) status = 'WATCHLIST';
+    else status = 'DESCARTADA';
+  }
 
   return {
     signal,
