@@ -181,6 +181,45 @@ export default function HomePage() {
     }
   }
 
+  function addTestTrade(type = 'WIN') {
+    const entry = 100;
+    const stop = 99.5;
+    const takeProfit = 101.4;
+
+    const trade = {
+      id: `test-${type}-${Date.now()}`,
+      symbol: type === 'LOSE' ? 'ETHUSDT' : 'BTCUSDT',
+      signal: 'LONG',
+      entry,
+      stop,
+      takeProfit,
+      score: 75,
+      intradayScore: 8,
+      confidence: 95,
+      rr: '2.80',
+      createdAt: nowText(),
+      result: type === 'ACTIVE' ? 'ACTIVA' : type,
+      closedAt: type === 'ACTIVE' ? null : nowText(),
+      closePrice:
+        type === 'WIN' ? takeProfit :
+        type === 'LOSE' ? stop :
+        null,
+      pnlPercent:
+        type === 'WIN' ? (((takeProfit - entry) / entry) * 100).toFixed(2) :
+        type === 'LOSE' ? (((stop - entry) / entry) * 100).toFixed(2) :
+        null,
+    };
+
+    setDailyTrades((prev) => [trade, ...prev]);
+  }
+
+  function clearTodayTrades() {
+    setDailyTrades([]);
+    try {
+      localStorage.removeItem(storageKey);
+    } catch {}
+  }
+
   async function analyzeAll(showSpinner = true) {
     if (!symbols.length) return;
     if (showSpinner) setLoading(true);
@@ -488,6 +527,21 @@ export default function HomePage() {
                 <div>LOSE: <strong>{dailyStats.losses}</strong></div>
                 <div>WIN RATE: <strong>{dailyStats.winRate}%</strong></div>
               </div>
+            </div>
+
+            <div style={{ display: 'flex', gap: 8, marginTop: 14, flexWrap: 'wrap' }}>
+              <button className="button" onClick={() => addTestTrade('ACTIVE')}>
+                Test activa
+              </button>
+              <button className="button" onClick={() => addTestTrade('WIN')}>
+                Test win
+              </button>
+              <button className="button" onClick={() => addTestTrade('LOSE')}>
+                Test lose
+              </button>
+              <button className="button" onClick={clearTodayTrades}>
+                Reset día
+              </button>
             </div>
 
             <div style={{ marginTop: 16, display: 'grid', gap: 10 }}>
