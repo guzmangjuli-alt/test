@@ -5,6 +5,85 @@ import SignalCard from '../components/SignalCard';
 
 const DEFAULT_SYMBOLS = 'BTCUSDT, ETHUSDT, SOLUSDT';
 
+function todayKey() {
+  const now = new Date();
+  const y = now.getFullYear();
+  const m = String(now.getMonth() + 1).padStart(2, '0');
+  const d = String(now.getDate()).padStart(2, '0');
+  return `julsignals-daily-${y}-${m}-${d}`;
+}
+
+function nowText() {
+  return new Date().toLocaleTimeString('es-ES');
+}
+
+function toNum(value) {
+  const n = Number(value);
+  return Number.isFinite(n) ? n : null;
+}
+
+function sameTrade(a, b) {
+  if (!a || !b) return false;
+  if (a.symbol !== b.symbol) return false;
+  if (a.signal !== b.signal) return false;
+
+  const entryA = toNum(a.entry);
+  const entryB = toNum(b.entry);
+  if (entryA === null || entryB === null) return false;
+
+  const diff = Math.abs(entryA - entryB) / entryA;
+  return diff <= 0.0015; // 0.15%
+}
+
+function resolveTrade(trade, currentPrice) {
+  const price = toNum(currentPrice);
+  const tp = toNum(trade.takeProfit);
+  const sl = toNum(trade.stop);
+
+  if (price === null || tp === null || sl === null) return trade;
+  if (trade.result !== 'ACTIVA') return trade;
+
+  if (trade.signal === 'LONG') {
+    if (price >= tp) {
+      return {
+        ...trade,
+        result: 'WIN',
+        closedAt: nowText(),
+        closePrice: price,
+      };
+    }
+    if (price <= sl) {
+      return {
+        ...trade,
+        result: 'LOSE',
+        closedAt: nowText(),
+        closePrice: price,
+      };
+    }
+  }
+
+  if (trade.signal === 'SHORT') {
+    if (price <= tp) {
+      return {
+        ...trade,
+        result: 'WIN',
+        closedAt: nowText(),
+        closePrice: price,
+      };
+    }
+    if (price >= sl) {
+      return {
+        ...trade,
+        result: 'LOSE',
+        closedAt: nowText(),
+        closePrice: price,
+      };
+    }
+  }
+
+  return trade;
+}
+
 export default function HomePage() {
   const [symbolsInput, setSymbolsInput] = useState(DEFAULT_SYMBOLS);
   const [timeframe, setTimeframe] = useState('15m');
@@ -15,10 +94,13 @@ export default function HomePage() {
   const [refreshSeconds, setRefreshSeconds] = useState('30');
   const [onlyActionable, setOnlyActionable] = useState(false);
   const [lastUpdated, setLastUpdated] = useState('');
+  const [dailyTrades, setDailyTrades] = useState([]);
 
   const intervalRef = useRef(null);
   const lastSignalsRef = useRef({});
   const audioEnabledRef = useRef(false);
+
+  const storageKey = todayKey();
 
   const symbols = useMemo(
     () =>
@@ -29,6 +111,25 @@ export default function HomePage() {
         .slice(0, 10),
     [symbolsInput]
   );
+
+  useEffect(() => {
+    try {
+      const raw = localStorage.getItem(storageKey);
+      if (raw) {
+        setDailyTrades(JSON.parse(raw));
+      } else {
+        setDailyTrades([]);
+      }
+    } catch {
+      setDailyTrades([]);
+    }
+  }, [storageKey]);
+
+  useEffect(() => {
+    try {
+      localStorage.setItem(storageKey, JSON.stringify(dailyTrades));
+    } catch {}
+  }, [dailyTrades, storageKey]);
 
   function playSignalSound() {
     try {
@@ -92,7 +193,56 @@ export default function HomePage() {
       }
 
       setResults(nextResults);
-      setLastUpdated(new Date().toLocaleTimeString('es-ES'));
+      setLastUpdated(nowText());
+
+      setDailyTrades((prev) => {
+        let updated = [...prev];
+
+        // 1) Añadir nuevas señales operables del día
+        for (const item of nextResults) {
+          if (
+            item.status === 'OPERABLE' &&
+            (item.signal === 'LONG' || item.signal === 'SHORT') &&
+            item.entry &&
+            item.stop &&
+            item.takeProfit
+          ) {
+            const candidate = {
+              id: `${item.symbol}-${item.signal}-${item.entry}-${Date.now()}`,
+              symbol: item.symbol,
+              signal: item.signal,
+              entry: item.entry,
+              stop: item.stop,
+              takeProfit: item.takeProfit,
+              score: item.score,
+              intradayScore: item.intradayScore,
+              confidence: item.confidence,
+              createdAt: nowText(),
+              result: 'ACTIVA',
+            };
+
+            const exists = updated.some(
+              (trade) => trade.result === 'ACTIVA' && sameTrade(trade, candidate)
+            );
+
+            if (!exists) {
+              updated.unshift(candidate);
+            }
+          }
+        }
+
+        // 2) Resolver señales activas con el precio actual
+        updated = updated.map((trade) => {
+          if (trade.result !== 'ACTIVA') return trade;
+
+          const current = nextResults.find((item) => item.symbol === trade.symbol);
+          if (!current) return trade;
+
+          return resolveTrade(trade, current.price);
+        });
+
+        return updated;
+      });
 
       if (hasNewSignal) {
         playSignalSound();
@@ -122,14 +272,14 @@ export default function HomePage() {
   }, [autoRefresh, refreshSeconds, timeframe, symbolsInput]);
 
   const visibleResults = useMemo(() => {
-  const sorted = [...results].sort(
-    (a, b) => (b.intradayScore || 0) - (a.intradayScore || 0)
-  );
+    const sorted = [...results].sort(
+      (a, b) => (b.intradayScore || 0) - (a.intradayScore || 0)
+    );
 
-  return onlyActionable
-    ? sorted.filter((item) => item.status === 'OPERABLE')
-    : sorted;
-}, [results, onlyActionable]);
+    return onlyActionable
+      ? sorted.filter((item) => item.status === 'OPERABLE')
+      : sorted;
+  }, [results, onlyActionable]);
 
   const stats = useMemo(
     () => ({
@@ -139,6 +289,22 @@ export default function HomePage() {
     }),
     [results]
   );
+
+  const dailyStats = useMemo(() => {
+    const wins = dailyTrades.filter((t) => t.result === 'WIN').length;
+    const losses = dailyTrades.filter((t) => t.result === 'LOSE').length;
+    const active = dailyTrades.filter((t) => t.result === 'ACTIVA').length;
+    const closed = wins + losses;
+    const winRate = closed > 0 ? ((wins / closed) * 100).toFixed(0) : '0';
+
+    return { wins, losses, active, winRate };
+  }, [dailyTrades]);
+
+  function resultColor(result) {
+    if (result === 'WIN') return '#22c55e';
+    if (result === 'LOSE') return '#ef4444';
+    return '#f59e0b';
+  }
 
   return (
     <main className="page">
@@ -264,19 +430,87 @@ export default function HomePage() {
           {error ? <div className="error">{error}</div> : null}
 
           <div className="footer-note">
-            Activa el auto refresh a 30s para vigilar setups intradía nuevos y recibir aviso cuando aparezca una señal operable.
+            Activa el auto refresh a 30s para vigilar setups intradía nuevos y registrar automáticamente win o lose del día.
           </div>
         </section>
 
-        {visibleResults.length > 0 ? (
-          <section className="grid">
-            {visibleResults.map((item) => (
-              <SignalCard key={item.symbol} item={item} />
-            ))}
-          </section>
-        ) : (
-          <section className="card empty">No hay pares para mostrar todavía. Añade símbolos y pulsa analizar.</section>
-        )}
+        <section
+          style={{
+            display: 'grid',
+            gridTemplateColumns: 'minmax(0, 1fr) 360px',
+            gap: 20,
+            alignItems: 'start',
+          }}
+        >
+          <div>
+            {visibleResults.length > 0 ? (
+              <section className="grid">
+                {visibleResults.map((item) => (
+                  <SignalCard key={item.symbol} item={item} />
+                ))}
+              </section>
+            ) : (
+              <section className="card empty">
+                No hay pares para mostrar todavía. Añade símbolos y pulsa analizar.
+              </section>
+            )}
+          </div>
+
+          <aside className="card pad">
+            <div style={{ display: 'flex', justifyContent: 'space-between', gap: 12, alignItems: 'center' }}>
+              <div>
+                <div className="kicker">📅 Diario</div>
+                <h3 style={{ margin: '8px 0 0 0' }}>Resultados de hoy</h3>
+              </div>
+              <div style={{ textAlign: 'right', fontSize: 13, opacity: 0.85 }}>
+                <div>WIN: <strong>{dailyStats.wins}</strong></div>
+                <div>LOSE: <strong>{dailyStats.losses}</strong></div>
+                <div>ACTIVAS: <strong>{dailyStats.active}</strong></div>
+                <div>WIN RATE: <strong>{dailyStats.winRate}%</strong></div>
+              </div>
+            </div>
+
+            <div style={{ marginTop: 16, display: 'grid', gap: 10 }}>
+              {dailyTrades.length === 0 ? (
+                <div className="empty" style={{ minHeight: 120 }}>
+                  Aún no hay operaciones diarias registradas.
+                </div>
+              ) : (
+                dailyTrades.map((trade) => (
+                  <div
+                    key={trade.id}
+                    style={{
+                      border: `1px solid ${resultColor(trade.result)}`,
+                      borderRadius: 16,
+                      padding: 12,
+                      background: 'rgba(255,255,255,0.02)',
+                    }}
+                  >
+                    <div style={{ display: 'flex', justifyContent: 'space-between', gap: 10 }}>
+                      <div style={{ fontWeight: 700 }}>{trade.symbol}</div>
+                      <div style={{ color: resultColor(trade.result), fontWeight: 700 }}>
+                        {trade.result}
+                      </div>
+                    </div>
+
+                    <div style={{ marginTop: 6, fontSize: 13, opacity: 0.9 }}>
+                      {trade.signal} · Entrada {trade.entry}
+                    </div>
+
+                    <div style={{ marginTop: 6, fontSize: 13, opacity: 0.9 }}>
+                      SL {trade.stop} · TP {trade.takeProfit}
+                    </div>
+
+                    <div style={{ marginTop: 6, fontSize: 12, opacity: 0.7 }}>
+                      Creada: {trade.createdAt}
+                      {trade.closedAt ? ` · Cerrada: ${trade.closedAt}` : ''}
+                    </div>
+                  </div>
+                ))
+              )}
+            </div>
+          </aside>
+        </section>
       </div>
     </main>
   );
