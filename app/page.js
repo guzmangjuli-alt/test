@@ -118,6 +118,8 @@ export default function HomePage() {
   const [onlyActionable, setOnlyActionable] = useState(false);
   const [lastUpdated, setLastUpdated] = useState('');
   const [dailyTrades, setDailyTrades] = useState([]);
+  const [positionSize, setPositionSize] = useState('100');
+  const [showTestTools, setShowTestTools] = useState(false);
 
   const intervalRef = useRef(null);
   const lastSignalsRef = useRef({});
@@ -181,6 +183,40 @@ export default function HomePage() {
     }
   }
 
+  function addTestTrade(type = 'WIN') {
+    const entry = 100;
+    const stop = 99.5;
+    const takeProfit = 101.4;
+
+    const pnlPercent =
+      type === 'WIN'
+        ? (((takeProfit - entry) / entry) * 100).toFixed(2)
+        : type === 'LOSE'
+        ? (((stop - entry) / entry) * 100).toFixed(2)
+        : null;
+
+    const trade = {
+      id: `test-${type}-${Date.now()}`,
+      symbol: type === 'LOSE' ? 'ETHUSDT' : 'BTCUSDT',
+      signal: 'LONG',
+      entry,
+      stop,
+      takeProfit,
+      score: 75,
+      intradayScore: 8,
+      confidence: 95,
+      rr: 2.8,
+      createdAt: nowText(),
+      result: type === 'ACTIVE' ? 'ACTIVA' : type,
+      closedAt: type === 'ACTIVE' ? null : nowText(),
+      closePrice: type === 'WIN' ? takeProfit : type === 'LOSE' ? stop : null,
+      pnlPercent,
+      isTest: true,
+    };
+
+    setDailyTrades((prev) => [trade, ...prev]);
+  }
+
   function clearTodayTrades() {
     setDailyTrades([]);
     try {
@@ -229,8 +265,13 @@ export default function HomePage() {
         let updated = [...prev];
 
         for (const item of nextResults) {
+          const rrValue = toNum(item.rr);
+          const passesQualityFilter =
+            (item.intradayScore || 0) >= 7 && rrValue !== null && rrValue >= 2;
+
           if (
             item.status === 'OPERABLE' &&
+            passesQualityFilter &&
             (item.signal === 'LONG' || item.signal === 'SHORT') &&
             item.entry &&
             item.stop &&
@@ -249,6 +290,7 @@ export default function HomePage() {
               rr: item.rr,
               createdAt: nowText(),
               result: 'ACTIVA',
+              isTest: false,
             };
 
             const exists = updated.some((trade) => sameTrade(trade, candidate));
@@ -324,9 +366,16 @@ export default function HomePage() {
     const closed = wins + losses;
     const winRate = closed > 0 ? ((wins / closed) * 100).toFixed(0) : '0';
 
-    const pnlTotal = dailyTrades.reduce((acc, trade) => {
+    const pnlTotalPercent = dailyTrades.reduce((acc, trade) => {
       const pnl = Number(trade.pnlPercent);
       return Number.isFinite(pnl) ? acc + pnl : acc;
+    }, 0);
+
+    const position = Number(positionSize) || 0;
+    const pnlTotalEur = dailyTrades.reduce((acc, trade) => {
+      const pnl = Number(trade.pnlPercent);
+      if (!Number.isFinite(pnl)) return acc;
+      return acc + position * (pnl / 100);
     }, 0);
 
     return {
@@ -334,9 +383,10 @@ export default function HomePage() {
       losses,
       active,
       winRate,
-      pnlTotal: pnlTotal.toFixed(2),
+      pnlTotalPercent: pnlTotalPercent.toFixed(2),
+      pnlTotalEur: pnlTotalEur.toFixed(2),
     };
-  }, [dailyTrades]);
+  }, [dailyTrades, positionSize]);
 
   function resultColor(result) {
     if (result === 'WIN') return '#22c55e';
@@ -456,6 +506,42 @@ export default function HomePage() {
             </div>
           </div>
 
+          <div
+            className="toggles"
+            style={{
+              marginTop: 12,
+              gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))',
+            }}
+          >
+            <div className="toggle">
+              <div>
+                <div className="toggle-title">Tamaño por trade</div>
+                <div className="toggle-subtitle">Estimación PnL en €</div>
+              </div>
+              <input
+                className="input"
+                style={{ maxWidth: 120, textAlign: 'right' }}
+                value={positionSize}
+                onChange={(e) => setPositionSize(e.target.value)}
+                inputMode="decimal"
+                placeholder="100"
+              />
+            </div>
+
+            <div className="toggle">
+              <div>
+                <div className="toggle-title">Herramientas test</div>
+                <div className="toggle-subtitle">Mostrar / ocultar pruebas</div>
+              </div>
+              <input
+                className="switch"
+                type="checkbox"
+                checked={showTestTools}
+                onChange={(e) => setShowTestTools(e.target.checked)}
+              />
+            </div>
+          </div>
+
           <div className="meta">
             <div>
               Última actualización: <strong>{lastUpdated || '—'}</strong>
@@ -506,14 +592,35 @@ export default function HomePage() {
                 <div>LOSE: <strong>{dailyStats.losses}</strong></div>
                 <div>WIN RATE: <strong>{dailyStats.winRate}%</strong></div>
                 <div>
-                  PnL:{' '}
-                  <strong style={{ color: Number(dailyStats.pnlTotal) >= 0 ? '#22c55e' : '#ef4444' }}>
-                    {Number(dailyStats.pnlTotal) > 0 ? '+' : ''}
-                    {dailyStats.pnlTotal}%
+                  PnL %:{' '}
+                  <strong style={{ color: Number(dailyStats.pnlTotalPercent) >= 0 ? '#22c55e' : '#ef4444' }}>
+                    {Number(dailyStats.pnlTotalPercent) > 0 ? '+' : ''}
+                    {dailyStats.pnlTotalPercent}%
+                  </strong>
+                </div>
+                <div>
+                  PnL €:{' '}
+                  <strong style={{ color: Number(dailyStats.pnlTotalEur) >= 0 ? '#22c55e' : '#ef4444' }}>
+                    {Number(dailyStats.pnlTotalEur) > 0 ? '+' : ''}
+                    {dailyStats.pnlTotalEur}€
                   </strong>
                 </div>
               </div>
             </div>
+
+            {showTestTools ? (
+              <div style={{ display: 'flex', gap: 8, marginTop: 14, flexWrap: 'wrap' }}>
+                <button className="button" onClick={() => addTestTrade('ACTIVE')}>
+                  Test activa
+                </button>
+                <button className="button" onClick={() => addTestTrade('WIN')}>
+                  Test win
+                </button>
+                <button className="button" onClick={() => addTestTrade('LOSE')}>
+                  Test lose
+                </button>
+              </div>
+            ) : null}
 
             <div style={{ display: 'flex', gap: 8, marginTop: 14, flexWrap: 'wrap' }}>
               <button className="button" onClick={clearTodayTrades}>
@@ -527,55 +634,82 @@ export default function HomePage() {
                   Todavía no ha entrado ninguna señal OPERABLE hoy.
                 </div>
               ) : (
-                dailyTrades.map((trade) => (
-                  <div
-                    key={trade.id}
-                    style={{
-                      border: `1px solid ${resultColor(trade.result)}`,
-                      borderRadius: 16,
-                      padding: 12,
-                      background: 'rgba(255,255,255,0.02)',
-                    }}
-                  >
-                    <div style={{ display: 'flex', justifyContent: 'space-between', gap: 10 }}>
-                      <div style={{ fontWeight: 700 }}>{trade.symbol}</div>
-                      <div style={{ color: resultColor(trade.result), fontWeight: 700 }}>
-                        {trade.result}
+                dailyTrades.map((trade) => {
+                  const pnlEur = Number(positionSize) && trade.pnlPercent
+                    ? (Number(positionSize) * (Number(trade.pnlPercent) / 100)).toFixed(2)
+                    : null;
+
+                  return (
+                    <div
+                      key={trade.id}
+                      style={{
+                        border: `1px solid ${resultColor(trade.result)}`,
+                        borderRadius: 16,
+                        padding: 12,
+                        background: 'rgba(255,255,255,0.02)',
+                      }}
+                    >
+                      <div style={{ display: 'flex', justifyContent: 'space-between', gap: 10 }}>
+                        <div style={{ fontWeight: 700 }}>
+                          {trade.symbol}
+                          {trade.isTest ? (
+                            <span style={{ marginLeft: 8, fontSize: 11, opacity: 0.7 }}>
+                              TEST
+                            </span>
+                          ) : null}
+                        </div>
+                        <div style={{ color: resultColor(trade.result), fontWeight: 700 }}>
+                          {trade.result}
+                        </div>
+                      </div>
+
+                      <div style={{ marginTop: 6, fontSize: 13, opacity: 0.9 }}>
+                        {trade.signal} · Entrada {trade.entry}
+                      </div>
+
+                      <div style={{ marginTop: 6, fontSize: 13, opacity: 0.9 }}>
+                        SL {trade.stop} · TP {trade.takeProfit}
+                      </div>
+
+                      <div style={{ marginTop: 6, fontSize: 13, opacity: 0.9 }}>
+                        RR {trade.rr ?? '-'}
+                        {trade.pnlPercent ? (
+                          <>
+                            {' · Resultado '}
+                            <span
+                              style={{
+                                color: Number(trade.pnlPercent) >= 0 ? '#22c55e' : '#ef4444',
+                                fontWeight: 700,
+                              }}
+                            >
+                              {Number(trade.pnlPercent) > 0 ? '+' : ''}
+                              {trade.pnlPercent}%
+                            </span>
+                          </>
+                        ) : null}
+                        {pnlEur ? (
+                          <>
+                            {' · '}
+                            <span
+                              style={{
+                                color: Number(pnlEur) >= 0 ? '#22c55e' : '#ef4444',
+                                fontWeight: 700,
+                              }}
+                            >
+                              {Number(pnlEur) > 0 ? '+' : ''}
+                              {pnlEur}€
+                            </span>
+                          </>
+                        ) : null}
+                      </div>
+
+                      <div style={{ marginTop: 6, fontSize: 12, opacity: 0.7 }}>
+                        Creada: {trade.createdAt}
+                        {trade.closedAt ? ` · Cerrada: ${trade.closedAt}` : ''}
                       </div>
                     </div>
-
-                    <div style={{ marginTop: 6, fontSize: 13, opacity: 0.9 }}>
-                      {trade.signal} · Entrada {trade.entry}
-                    </div>
-
-                    <div style={{ marginTop: 6, fontSize: 13, opacity: 0.9 }}>
-                      SL {trade.stop} · TP {trade.takeProfit}
-                    </div>
-
-                    <div style={{ marginTop: 6, fontSize: 13, opacity: 0.9 }}>
-                      RR {trade.rr ?? '-'}
-                      {trade.pnlPercent ? (
-                        <>
-                          {' · Resultado '}
-                          <span
-                            style={{
-                              color: Number(trade.pnlPercent) >= 0 ? '#22c55e' : '#ef4444',
-                              fontWeight: 700,
-                            }}
-                          >
-                            {Number(trade.pnlPercent) > 0 ? '+' : ''}
-                            {trade.pnlPercent}%
-                          </span>
-                        </>
-                      ) : null}
-                    </div>
-
-                    <div style={{ marginTop: 6, fontSize: 12, opacity: 0.7 }}>
-                      Creada: {trade.createdAt}
-                      {trade.closedAt ? ` · Cerrada: ${trade.closedAt}` : ''}
-                    </div>
-                  </div>
-                ))
+                  );
+                })
               )}
             </div>
           </aside>
