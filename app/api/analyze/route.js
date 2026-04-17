@@ -223,7 +223,7 @@ function syncPaperBroker(results) {
     const passesQualityFilter =
       (item.intradayScore || 0) >= 7 &&
       rrValue !== null &&
-      rrValue >= 1.8;
+      rrValue >= 1.6;
 
     if (
       (item.signal === 'LONG' || item.signal === 'SHORT') &&
@@ -339,26 +339,30 @@ function buildSignal(rows) {
 
   const momentumLong =
     rsi14[i] !== null &&
-    rsi14[i] >= 50 &&
+    rsi14[i] >= 49 &&
     rsi14[i] <= 60;
 
   const momentumShort =
     rsi14[i] !== null &&
     rsi14[i] >= 40 &&
-    rsi14[i] <= 50;
+    rsi14[i] <= 51;
 
-  const volumeStrong = rvol >= 1.8;
-  const candleExpansion = range >= avgRange10 * 1.1;
+  // Volumen con más peso
+  const volumeSupport = rvol >= 1.15;
+  const volumeStrong = rvol >= 1.4;
+  const volumeVeryStrong = rvol >= 1.8;
+
+  const candleExpansion = range >= avgRange10 * 1.08;
 
   const candleStrongLong =
-    bodyRatio >= 0.6 &&
+    bodyRatio >= 0.58 &&
     closeNearHigh &&
-    upperWickRatio <= 0.18;
+    upperWickRatio <= 0.2;
 
   const candleStrongShort =
-    bodyRatio >= 0.6 &&
+    bodyRatio >= 0.58 &&
     closeNearLow &&
-    lowerWickRatio <= 0.18;
+    lowerWickRatio <= 0.2;
 
   let signal = 'WAIT';
   let score = 0;
@@ -368,47 +372,65 @@ function buildSignal(rows) {
   let takeProfit = null;
 
   const longScore =
-    (trendStrengthLong ? 22 : 0) +
-    (momentumLong ? 15 : 0) +
-    (breakoutLong ? 20 : 0) +
-    (volumeStrong ? 18 : 0) +
+    (trendStrengthLong ? 24 : 0) +
+    (momentumLong ? 14 : 0) +
+    (breakoutLong ? 16 : 0) +
+    (volumeSupport ? 10 : 0) +
+    (volumeStrong ? 10 : 0) +
+    (volumeVeryStrong ? 6 : 0) +
     (candleExpansion ? 10 : 0) +
-    (candleStrongLong ? 15 : 0);
+    (candleStrongLong ? 10 : 0);
 
   const shortScore =
-    (trendStrengthShort ? 22 : 0) +
-    (momentumShort ? 15 : 0) +
-    (breakoutShort ? 20 : 0) +
-    (volumeStrong ? 18 : 0) +
+    (trendStrengthShort ? 24 : 0) +
+    (momentumShort ? 14 : 0) +
+    (breakoutShort ? 16 : 0) +
+    (volumeSupport ? 10 : 0) +
+    (volumeStrong ? 10 : 0) +
+    (volumeVeryStrong ? 6 : 0) +
     (candleExpansion ? 10 : 0) +
-    (candleStrongShort ? 15 : 0);
+    (candleStrongShort ? 10 : 0);
 
-  if (longScore >= 67) {
+  const longSetupReady =
+    trendStrengthLong &&
+    momentumLong &&
+    volumeSupport &&
+    (breakoutLong || candleStrongLong);
+
+  const shortSetupReady =
+    trendStrengthShort &&
+    momentumShort &&
+    volumeSupport &&
+    (breakoutShort || candleStrongShort);
+
+  if (longSetupReady && longScore >= 62) {
     signal = 'LONG';
     score = longScore;
 
     if (trendStrengthLong) reasons.push('Tendencia alcista clara');
     if (momentumLong) reasons.push(`RSI sano (${rsi14[i].toFixed(1)})`);
     if (breakoutLong) reasons.push('Ruptura confirmada');
-    if (volumeStrong) reasons.push(`Volumen fuerte (RVOL ${rvol.toFixed(2)})`);
+    if (volumeSupport) reasons.push(`Volumen acompaña (RVOL ${rvol.toFixed(2)})`);
+    if (volumeStrong) reasons.push('Volumen fuerte');
     if (candleExpansion) reasons.push('Vela con expansión');
     if (candleStrongLong) reasons.push('Cierre fuerte cerca del máximo');
 
     stop = Math.min(...lows.slice(-5));
-    takeProfit = last.close + (last.close - stop) * 1.8;
-  } else if (shortScore >= 67) {
+    takeProfit = last.close + (last.close - stop) * 1.6;
+  } else if (shortSetupReady && shortScore >= 62) {
     signal = 'SHORT';
     score = shortScore;
 
     if (trendStrengthShort) reasons.push('Tendencia bajista clara');
     if (momentumShort) reasons.push(`RSI sano (${rsi14[i].toFixed(1)})`);
     if (breakoutShort) reasons.push('Ruptura confirmada');
-    if (volumeStrong) reasons.push(`Volumen fuerte (RVOL ${rvol.toFixed(2)})`);
+    if (volumeSupport) reasons.push(`Volumen acompaña (RVOL ${rvol.toFixed(2)})`);
+    if (volumeStrong) reasons.push('Volumen fuerte');
     if (candleExpansion) reasons.push('Vela con expansión');
     if (candleStrongShort) reasons.push('Cierre fuerte cerca del mínimo');
 
     stop = Math.max(...highs.slice(-5));
-    takeProfit = last.close - (stop - last.close) * 1.8;
+    takeProfit = last.close - (stop - last.close) * 1.6;
   } else {
     score = Math.max(longScore, shortScore);
     confidence = Math.min(35 + Math.floor(score / 2), 70);
@@ -437,7 +459,7 @@ function buildSignal(rows) {
 
   if (
     signal !== 'WAIT' &&
-    (!tpPercent || Number(tpPercent) < 0.25 || !riskPercent || Number(riskPercent) < 0.08)
+    (!tpPercent || Number(tpPercent) < 0.22 || !riskPercent || Number(riskPercent) < 0.08)
   ) {
     signal = 'WAIT';
     confidence = 0;
@@ -450,17 +472,18 @@ function buildSignal(rows) {
   }
 
   if (signal !== 'WAIT') {
-    confidence = Math.min(58 + Math.floor(score / 2), 95);
+    confidence = Math.min(60 + Math.floor(score / 2), 95);
   }
 
   let intradayScore = 0;
 
   if (trendStrengthLong || trendStrengthShort) intradayScore += 2;
   if (momentumLong || momentumShort) intradayScore += 2;
-  if (volumeStrong) intradayScore += 2;
-  if (candleStrongLong || candleStrongShort) intradayScore += 2;
+  if (volumeSupport) intradayScore += 2;
+  if (volumeStrong) intradayScore += 1;
+  if (candleStrongLong || candleStrongShort) intradayScore += 1;
   if (breakoutLong || breakoutShort) intradayScore += 1;
-  if (rr && Number(rr) >= 2) intradayScore += 1;
+  if (rr && Number(rr) >= 1.6) intradayScore += 1;
 
   if (intradayScore > 10) intradayScore = 10;
 
@@ -469,8 +492,7 @@ function buildSignal(rows) {
   if (signal === 'LONG' || signal === 'SHORT') {
     status = intradayScore >= 7 ? 'OPERABLE' : 'WATCHLIST';
   } else {
-    if (intradayScore >= 7) status = 'WATCHLIST';
-    else status = 'DESCARTADA';
+    status = intradayScore >= 6 ? 'WATCHLIST' : 'DESCARTADA';
   }
 
   return {
