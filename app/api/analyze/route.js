@@ -218,18 +218,49 @@ function buildSignal(rows) {
     confidence = Math.min(58 + Math.floor(score / 2), 95);
   }
 
-  return {
-    signal,
-    score,
-    confidence,
-    price: formatNumber(last.close),
-    entry: formatNumber(last.close),
-    stop: formatNumber(stop),
-    takeProfit: formatNumber(takeProfit),
-    rr,
-    riskPercent,
-    reasons,
-  };
+  // --- NUEVO SISTEMA INTRADÍA ---
+let intradayScore = 0;
+
+// Tendencia
+if (trendStrengthLong || trendStrengthShort) intradayScore += 2;
+
+// Momentum
+if (momentumLong || momentumShort) intradayScore += 2;
+
+// Volumen
+if (volumeStrong) intradayScore += 2;
+
+// Vela fuerte
+if (candleStrongLong || candleStrongShort) intradayScore += 2;
+
+// Breakout
+if (breakoutLong || breakoutShort) intradayScore += 1;
+
+// R/R
+if (rr && Number(rr) >= 2) intradayScore += 1;
+
+// Normalizamos a 10
+if (intradayScore > 10) intradayScore = 10;
+
+// --- STATUS ---
+let status = "DESCARTADA";
+if (intradayScore >= 8) status = "OPERABLE";
+else if (intradayScore >= 6) status = "WATCHLIST";
+
+return {
+  signal,
+  score, // tu score original (lo mantenemos)
+  intradayScore, // 🔥 NUEVO
+  status,        // 🔥 NUEVO
+  confidence,
+  price: formatNumber(last.close),
+  entry: formatNumber(last.close),
+  stop: formatNumber(stop),
+  takeProfit: formatNumber(takeProfit),
+  rr,
+  riskPercent,
+  reasons,
+};
 }
 
 function toOkx(symbol) {
