@@ -53,44 +53,53 @@ function resolveTrade(trade, currentPrice) {
   const price = toNum(currentPrice);
   const tp = toNum(trade.takeProfit);
   const sl = toNum(trade.stop);
+  const entry = toNum(trade.entry);
 
-  if (price === null || tp === null || sl === null) return trade;
+  if (price === null || tp === null || sl === null || entry === null) return trade;
   if (trade.result !== 'ACTIVA') return trade;
 
   if (trade.signal === 'LONG') {
     if (price >= tp) {
+      const pnlPercent = ((tp - entry) / entry) * 100;
       return {
         ...trade,
         result: 'WIN',
         closedAt: nowText(),
-        closePrice: price,
+        closePrice: tp,
+        pnlPercent: pnlPercent.toFixed(2),
       };
     }
     if (price <= sl) {
+      const pnlPercent = ((sl - entry) / entry) * 100;
       return {
         ...trade,
         result: 'LOSE',
         closedAt: nowText(),
-        closePrice: price,
+        closePrice: sl,
+        pnlPercent: pnlPercent.toFixed(2),
       };
     }
   }
 
   if (trade.signal === 'SHORT') {
     if (price <= tp) {
+      const pnlPercent = ((entry - tp) / entry) * 100;
       return {
         ...trade,
         result: 'WIN',
         closedAt: nowText(),
-        closePrice: price,
+        closePrice: tp,
+        pnlPercent: pnlPercent.toFixed(2),
       };
     }
     if (price >= sl) {
+      const pnlPercent = ((entry - sl) / entry) * 100;
       return {
         ...trade,
         result: 'LOSE',
         closedAt: nowText(),
-        closePrice: price,
+        closePrice: sl,
+        pnlPercent: pnlPercent.toFixed(2),
       };
     }
   }
@@ -212,7 +221,6 @@ export default function HomePage() {
       setDailyTrades((prev) => {
         let updated = [...prev];
 
-        // 1) Añadir nuevas señales operables del día
         for (const item of nextResults) {
           if (
             item.status === 'OPERABLE' &&
@@ -231,6 +239,7 @@ export default function HomePage() {
               score: item.score,
               intradayScore: item.intradayScore,
               confidence: item.confidence,
+              rr: item.rr,
               createdAt: nowText(),
               result: 'ACTIVA',
             };
@@ -243,7 +252,6 @@ export default function HomePage() {
           }
         }
 
-        // 2) Resolver señales activas con el precio actual
         updated = updated.map((trade) => {
           if (trade.result !== 'ACTIVA') return trade;
 
@@ -475,9 +483,9 @@ export default function HomePage() {
                 <h3 style={{ margin: '8px 0 0 0' }}>Resultados de hoy</h3>
               </div>
               <div style={{ textAlign: 'right', fontSize: 13, opacity: 0.85 }}>
+                <div>ACTIVAS: <strong>{dailyStats.active}</strong></div>
                 <div>WIN: <strong>{dailyStats.wins}</strong></div>
                 <div>LOSE: <strong>{dailyStats.losses}</strong></div>
-                <div>ACTIVAS: <strong>{dailyStats.active}</strong></div>
                 <div>WIN RATE: <strong>{dailyStats.winRate}%</strong></div>
               </div>
             </div>
@@ -485,7 +493,7 @@ export default function HomePage() {
             <div style={{ marginTop: 16, display: 'grid', gap: 10 }}>
               {dailyTrades.length === 0 ? (
                 <div className="empty" style={{ minHeight: 120 }}>
-                  Todavía no ha entrado ninguna señal OPERABLE hoy  .
+                  Todavía no ha entrado ninguna señal OPERABLE hoy.
                 </div>
               ) : (
                 dailyTrades.map((trade) => (
@@ -511,6 +519,24 @@ export default function HomePage() {
 
                     <div style={{ marginTop: 6, fontSize: 13, opacity: 0.9 }}>
                       SL {trade.stop} · TP {trade.takeProfit}
+                    </div>
+
+                    <div style={{ marginTop: 6, fontSize: 13, opacity: 0.9 }}>
+                      RR {trade.rr || '-'}
+                      {trade.pnlPercent ? (
+                        <>
+                          {' · Resultado '}
+                          <span
+                            style={{
+                              color: Number(trade.pnlPercent) >= 0 ? '#22c55e' : '#ef4444',
+                              fontWeight: 700,
+                            }}
+                          >
+                            {Number(trade.pnlPercent) > 0 ? '+' : ''}
+                            {trade.pnlPercent}%
+                          </span>
+                        </>
+                      ) : null}
                     </div>
 
                     <div style={{ marginTop: 6, fontSize: 12, opacity: 0.7 }}>
