@@ -223,7 +223,7 @@ function syncPaperBroker(results) {
     const passesQualityFilter =
       (item.intradayScore || 0) >= 7 &&
       rrValue !== null &&
-      rrValue >= 1.6;
+      rrValue >= 1.9;
 
     if (
       (item.signal === 'LONG' || item.signal === 'SHORT') &&
@@ -416,7 +416,7 @@ function buildSignal(rows) {
     if (candleStrongLong) reasons.push('Cierre fuerte cerca del máximo');
 
     stop = Math.min(...lows.slice(-5));
-    takeProfit = last.close + (last.close - stop) * 1.6;
+    takeProfit = last.close + (last.close - stop) * 1.9;
   } else if (shortSetupReady && shortScore >= 62) {
     signal = 'SHORT';
     score = shortScore;
@@ -430,7 +430,7 @@ function buildSignal(rows) {
     if (candleStrongShort) reasons.push('Cierre fuerte cerca del mínimo');
 
     stop = Math.max(...highs.slice(-5));
-    takeProfit = last.close - (stop - last.close) * 1.6;
+    takeProfit = last.close - (stop - last.close) * 1.9;
   } else {
     score = Math.max(longScore, shortScore);
     confidence = Math.min(35 + Math.floor(score / 2), 70);
